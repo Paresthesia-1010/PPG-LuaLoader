@@ -23,7 +23,8 @@ Looking to test the loader right away? Grab the latest compiled binaries from th
 ---
 
 ## 📖 Quick Navigation & Modding Guide
-* 🚀 **[Quickstart: Your First Mod](#-quickstart-writing-your-first-lua-mod)**
+* 🚀 **[Quickstart: Your First Mod & Folder Structure](#-quickstart-writing-your-first-lua-mod)**
+* 🎮 **[In-Game Toybox Usage](#-in-game-toybox-usage)**
 * 📚 **[Complete Lua API Reference](#-complete-lua-api-reference)**
 
 ---
@@ -36,45 +37,74 @@ Following recent security concerns regarding traditional C# DLL mods, this proje
 
 ## 🚀 Quickstart: Writing Your First Lua Mod
 
-To create a custom mod, navigate to your game's **`Mods/`** directory and create a new folder (e.g., `Mods/MyFirstLuaMod/`). Inside that folder, create a file named **`main.lua`**.
+### 📁 Mod Folder Structure
+To create a custom mod, navigate to your game's **`Mods/`** directory and create a dedicated folder for your mod (e.g., `Mods/PlasmaBladeMod/`). 
 
-Here is a complete template showcasing item registration, spawning, and gore manipulation:
+Your mod folder should be structured like this:
+```text
+People Playground/
+ └── Mods/
+      └── PlasmaBladeMod/
+           ├── mod.json       <-- Mod metadata & display name
+           ├── thumb.png      <-- Custom icon image (Thumbnail for the Toybox menu)
+           └── main.lua       <-- Main Lua execution script
+```
 
+### 📄 1. `mod.json` (Configuration)
+Create a file named `mod.json` inside your mod folder:
+```json
+{
+  "Name": "Flaming Plasma Blade",
+  "Author": "YourName",
+  "Description": "Custom burning sword powered by Lua!",
+  "ModVersion": "1.0",
+  "GameVersion": "1.27+",
+  "ThumbnailPath": "thumb.png",
+  "Active": true
+}
+```
+
+### 📜 2. `main.lua` (Script)
+Create a file named `main.lua` alongside your config:
 ```lua
 -- =========================================================
--- My First PPG Lua Mod Template
+-- Flaming Plasma Blade Mod Template
 -- =========================================================
 
 function Initialize()
-    Log("MyFirstLuaMod initialized successfully!")
+    Log("Initializing Flaming Plasma Blade...")
 
-    -- 1. Register a custom weapon into the Custom Toybox (Press Tab in-game)
+    -- Register a custom weapon into the Custom Toybox
     Item.Register({
-        name = "Electric Katana",
-        description = "A high-voltage custom blade scripted in Lua.",
+        name = "Flaming Plasma Blade",
+        description = "A blazing custom blade created purely in Lua!",
         baseItem = "Sword",
-        sprite = "katana_icon.png", -- Optional: Place PNG in your mod folder
+        sprite = "thumb.png", -- Optional: Use your PNG as the item's world texture
         
-        -- Triggered automatically when spawned from the Toybox
+        -- Triggered automatically when spawned from the Custom Toybox
         onSpawn = function(swordEntity)
-            Log("Electric Katana spawned and charged!")
-            swordEntity:Electrocute(50.0)
+            Log("Plasma Blade materialized in physical space!")
+            swordEntity:Ignite()
+            swordEntity:SetTemperature(1000.0)
         end
     })
 end
 
 function Update(dt)
-    local mouse = Input.GetMouseWorldPosition()
-
-    -- Press [F] to spawn a test Human
-    if Input.IsKeyDown("F") then
-        local human = Spawn.Create("Human", mouse.x, mouse.y)
-        if human ~= nil then
-            Log("Spawned test dummy!")
-        end
-    end
+    -- Frame tick logic here
 end
 ```
+
+---
+
+## 🎮 In-Game Toybox Usage
+
+Once you are inside any game map:
+* Press **`Tab`** or **`F1`** to toggle open/close the **Custom Lua Toybox** window.
+* Click on any custom item card to **select it** (it will highlight in emerald green).
+* Aim your mouse cursor and press **`E`** to spawn the selected item instantly! 
+  *(The loader automatically suppresses native game actions on the `E` key to prevent conflicts).*
+* Use the **`Env`** tab inside the Toybox to toggle **Zero Gravity** or lock **Bullet Time (0.2x Slow-Mo)**.
 
 ---
 
@@ -118,4 +148,3 @@ Methods called on spawned entities:
 
 ## ⚠️ Disclaimer
 This is an **unofficial, experimental test project** created for educational and safety-oriented modding research. It is not affiliated with Studio Minus. Use at your own risk.
-```
