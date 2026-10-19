@@ -11,7 +11,7 @@
 
 Looking to test the loader right away? Grab the latest compiled binaries from the official release page.
 
-👉 **[Download PPG-LuaLoader v3.0 Final Release](https://github.com/Paresthesia/PPG-LuaLoader/releases)**
+👉 **[Download PPG-LuaLoader v3.0 Final Release](https://github.com/Paresthesia/PPG-LuaLoader/releases/tag/main)**
 
 ### Installation Steps
 1. Make sure you have **People Playground** installed via Steam.
@@ -23,9 +23,8 @@ Looking to test the loader right away? Grab the latest compiled binaries from th
 ---
 
 ## 📖 Quick Navigation & Modding Guide
-Want to write your own Lua mods? Skip straight to the guides below:
 * 🚀 **[Quickstart: Your First Mod](#-quickstart-writing-your-first-lua-mod)**
-* 🎛️ **[API Reference Overview](#-lua-api-reference)**
+* 📚 **[Complete Lua API Reference](#-complete-lua-api-reference)**
 
 ---
 
@@ -75,3 +74,48 @@ function Update(dt)
         end
     end
 end
+```
+
+---
+
+## 📚 Complete Lua API Reference
+
+Every Lua mod consists of a **`main.lua`** script containing two lifecycle hooks:
+* **`Initialize()`**: Called once when the mod is loaded.
+* **`Update(dt)`**: Called every frame while the game is running.
+
+### 1. ⌨️ Input API
+* `Input.IsKeyDown(keyName)`: Returns `true` on the single frame a key (e.g., `"F"`, `"Space"`, `"Tab"`, `"E"`, `"G"`) is pressed.
+* `Input.GetMouseWorldPosition()`: Returns a table `{x, y}` representing 2D world mouse coordinates.
+
+### 2. 👥 Spawn API
+* `Spawn.Create(assetName, x, y)`: Spawns native entities like `"Human"` or `"Android"` and returns a `LuaEntity` wrapper.
+
+### 3. 🦾 Entity API (`LuaEntity`)
+Methods called on spawned entities:
+* `entity:AddForce(fx, fy)`: Applies an impulse vector to all limbs.
+* `entity:Ignite()`: Sets flammable entities on fire.
+* `entity:Electrocute(volts)`: Discharges electricity into metal frames or Androids.
+* `entity:SetTemperature(celsius)`: Forces body temperature change (e.g., `1000.0` for red-hot metal).
+* `entity:Dismember()`: Severely shatters all physics joints for clean dismemberment.
+* `entity:Crush()`: Crushes flesh and bones into bloody chunks.
+* `entity:Disintegrate()`: Vaporizes flesh down to the skeleton.
+* `entity:Heal()`: Extinguishes fire, resets body temperature to 37°C, mends bones, and injects native `LIFE` serum.
+* `entity:Inject(liquidName, amount)`: Injects fluids like `"ACID"`, `"LIFE"`, or `"BLOOD"` directly into the bloodstream.
+* `entity:Delete()`: Instantly removes the entity from the world.
+
+### 4. ⚔️ Custom Item API
+* `Item.Register(configTable)`: Registers a custom item into the Custom Toybox (`Tab` menu).
+  * Properties inside `configTable`: `name`, `description`, `baseItem` (default: `"Sword"`), `sprite` (relative PNG path), and `onSpawn = function(entity) ... end`.
+
+### 5. 🌍 Map & Environment API
+* `Map.SetGravity(gx, gy)`: Dynamically changes 2D physics gravity.
+* `Map.SetTimeScale(scale)`: Locks simulation speed for bullet-time effects (e.g., `0.2` for slow-mo).
+* `Map.CreateWall(x, y, width, height, material)`: Instantly spawns a solid, indestructible structural wall (`"Metal"`, `"Wood"`, `"Concrete"`).
+* `Map.Register(mapConfig)`: Registers a complete map preset with custom structures into the Toybox Maps tab.
+
+---
+
+## ⚠️ Disclaimer
+This is an **unofficial, experimental test project** created for educational and safety-oriented modding research. It is not affiliated with Studio Minus. Use at your own risk.
+```
