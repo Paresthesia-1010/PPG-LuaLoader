@@ -114,398 +114,263 @@ Once you are inside any game map:
 
 # 📚 Complete Lua API Reference
 
-Every Lua mod resides in its own folder inside `People Playground/Mods/<ModName>/`.
-The engine boots from **`main.lua`** and reads metadata from an optional **`mod.json`** (`Name`, `ThumbnailPath`).
+Every Lua mod consists of a **`main.lua`** script containing two lifecycle hooks:
+* **`Initialize()`**: Called once when the mod is loaded.
+* **`Update(dt)`**: Called every frame while the game is running (`dt` = frame delta time in seconds).
 
 ---
 
-## 1. 🔄 Lifecycle Hooks
-
-Define these functions globally in your `main.lua`. The loader calls them automatically:
-
-```lua
-function Initialize()
-    -- Called ONCE when the mod is loaded and verified
-    Log("Mod initialized successfully.")
-end
-
-function Update(dt)
-    -- Called EVERY FRAME
-    -- dt (number): Time.deltaTime in seconds
-end
-```
+### 1. 📢 Global Logging API
+* `Log(message)`: Prints an informational message to the BepInEx console prefixed with `[ModName]`.
+* `LogWarning(message)`: Prints a yellow warning message.
+* `LogError(message)`: Prints a red error message.
 
 ---
 
-## 2. 📢 Global Logging
-
-Direct logging to the BepInEx console and game log output, automatically tagged with your mod name (`[YourModName]`):
-
-| Function | Parameters | Description |
-| :--- | :--- | :--- |
-| `Log(msg)` | `msg` *(string)* | Writes an informational message to the log. |
-| `LogWarning(msg)` | `msg` *(string)* | Writes a warning message to the log. |
-| `LogError(msg)` | `msg` *(string)* | Writes an error message to the log. |
-
----
-
-## 3. 📡 Global Event Listeners
-
-Register callbacks to intercept engine-level events across all entities and input devices.
-
-```lua
--- Entity Events
-OnSpawn(function(entity) ... end)
-OnDelete(function(entity) ... end)
-
--- Collision Events
-OnCollision(function(me, other, impulse) ... end)
-OnCollisionEnter(function(me, other, impulse) ... end)
-OnCollisionExit(function(me, other, impulse) ... end)
-
--- Input Events
-OnKeyDown(function(keyCodeString) ... end)
-OnKeyUp(function(keyCodeString) ... end)
-OnMouseDown(function(buttonIndex) ... end)
-OnMouseUp(function(buttonIndex) ... end)
-```
-
-| Event Listener | Callback Signature | Description |
-| :--- | :--- | :--- |
-| `OnSpawn(fn)` | `fn(entity: LuaEntity)` | Fired whenever an entity is instantiated via Spawn/Item APIs. |
-| `OnDelete(fn)` | `fn(entity: LuaEntity)` | Fired right before an entity is destroyed via `:Destroy()` or `:Delete()`. |
-| `OnCollision(fn)` | `fn(me: LuaEntity, other: LuaEntity, impulse: number)` | Fired on collision contact. |
-| `OnCollisionEnter(fn)` | `fn(me: LuaEntity, other: LuaEntity, impulse: number)` | Fired when two colliders first make physical contact. |
-| `OnCollisionExit(fn)` | `fn(me: LuaEntity, other: LuaEntity, impulse: number)` | Fired when two colliders separate (`impulse` is `0`). |
-| `OnKeyDown(fn)` | `fn(key: string)` | Fired on any keyboard key down (e.g., `"Space"`, `"F"`, `"Alpha1"`). |
-| `OnKeyUp(fn)` | `fn(key: string)` | Fired on any keyboard key release. |
-| `OnMouseDown(fn)` | `fn(btn: number)` | Fired on mouse press (`0` = Left, `1` = Right, `2` = Middle). |
-| `OnMouseUp(fn)` | `fn(btn: number)` | Fired on mouse button release. |
+### 2. 📡 Global Event Listeners
+Hooks to listen for global events across the entire game simulation:
+* `OnSpawn(function(entity) ... end)`: Called whenever any entity is created.
+* `OnDelete(function(entity) ... end)`: Called right before an entity is destroyed.
+* `OnCollision(function(me, other, impulse) ... end)`: Called on physics collision contact.
+* `OnCollisionEnter(function(me, other, impulse) ... end)`: Called when two entities begin colliding.
+* `OnCollisionExit(function(me, other, impulse) ... end)`: Called when two entities stop colliding (`impulse` is `0`).
+* `OnKeyDown(function(keyName) ... end)`: Called when any key is pressed down (e.g., `"Space"`, `"F"`).
+* `OnKeyUp(function(keyName) ... end)`: Called when any key is released.
+* `OnMouseDown(function(button) ... end)`: Called when a mouse button is pressed (`0` = Left, `1` = Right, `2` = Middle).
+* `OnMouseUp(function(button) ... end)`: Called when a mouse button is released.
 
 ---
 
-## 4. 🧭 Vector2 & `LuaVector2`
-
-A dedicated 2D vector object providing arithmetic and spatial helper functions.
-
-### Constructor
-* `Vector2.New(x, y)` $\rightarrow$ Returns a new `LuaVector2` instance.
-
-### Fields & Methods
-* `vec.x`, `vec.y` *(number)*: Vector coordinates.
-* `vec:Magnitude()` $\rightarrow$ *(number)* Length of the vector $\sqrt{x^2 + y^2}$.
-* `vec:Normalized()` $\rightarrow$ *(LuaVector2)* Unit vector (length of 1). Returns `(0, 0)` if magnitude is near zero.
-* `vec:Dot(otherVec)` $\rightarrow$ *(number)* Dot product of two vectors.
-* `vec:Distance(otherVec)` $\rightarrow$ *(number)* Euclidean distance between two vectors.
-
-```lua
-local v1 = Vector2.New(3, 4)
-Log("Magnitude: " .. tostring(v1:Magnitude())) -- 5
-
-local v2 = Vector2.New(0, 0)
-Log("Distance: " .. tostring(v1:Distance(v2)))  -- 5
-```
+### 3. 🧭 Vector2 API (`LuaVector2`)
+* `Vector2.New(x, y)`: Creates a new 2D vector object.
+* `vec.x`, `vec.y`: X and Y coordinates.
+* `vec:Magnitude()`: Returns vector length.
+* `vec:Normalized()`: Returns unit vector with length 1.
+* `vec:Dot(otherVec)`: Returns the dot product.
+* `vec:Distance(otherVec)`: Returns the distance between two vectors.
 
 ---
 
-## 5. 🦾 Entity API (`LuaEntity`)
+### 4. 🦾 Entity API (`LuaEntity`)
+Methods called on spawned objects, ragdolls, and items:
 
-The core object wrapping spawned ragdolls, props, weapons, and custom objects.
+#### Transform & Hierarchy
+* `entity:SetPosition(x, y)`: Teleports entity to world coordinates and syncs physics.
+* `entity:GetPosition()`: Returns current world coordinates as a `LuaVector2`.
+* `entity:SetRotation(angle)`: Sets Z-axis rotation angle in degrees.
+* `entity:GetRotation()`: Returns current Z-axis angle in degrees.
+* `entity:SetScale(x, y)`: Sets local scale.
+* `entity:GetScale()`: Returns local scale as a `LuaVector2`.
+* `entity:SetLocalPosition(x, y)`: Sets position relative to parent.
+* `entity:GetLocalPosition()`: Returns local position relative to parent as a `LuaVector2`.
+* `entity:SetParent(parentEntity)`: Attaches to another entity (pass `nil` to detach).
+* `entity:GetParent()`: Returns parent `LuaEntity` or `nil`.
 
-### 5.1 Transform & Hierarchy
-| Method | Returns | Description |
-| :--- | :--- | :--- |
-| `entity:SetPosition(x, y)` | `nil` | Teleports the root object to world coordinates and syncs 2D physics. |
-| `entity:GetPosition()` | `LuaVector2` | Returns the current world position. |
-| `entity:SetRotation(angle)` | `nil` | Sets the Z-axis rotation in degrees and syncs physics. |
-| `entity:GetRotation()` | `number` | Returns current Z-axis angle in degrees. |
-| `entity:SetScale(x, y)` | `nil` | Sets local scale. |
-| `entity:GetScale()` | `LuaVector2` | Returns local scale. |
-| `entity:SetLocalPosition(x, y)`| `nil` | Sets position relative to its parent. |
-| `entity:GetLocalPosition()` | `LuaVector2` | Returns position relative to its parent. |
-| `entity:SetParent(parentEntity)` | `nil` | Sets parent entity hierarchy (pass `nil` to unparent). |
-| `entity:GetParent()` | `LuaEntity` | Returns parent `LuaEntity`, or `nil` if root. |
+#### Physics & Motion
+* `entity:AddForce(fx, fy)`: Applies an instant force impulse vector to all limbs.
+* `entity:AddForceAtPosition(fx, fy, px, py)`: Applies force at a specific world position.
+* `entity:SetVelocity(vx, vy)`: Instantly sets linear velocity on all parts.
+* `entity:GetVelocity()`: Returns primary limb velocity as a `LuaVector2`.
+* `entity:AddVelocity(vx, vy)`: Adds linear velocity vector to all limbs.
+* `entity:SetAngularVelocity(speed)`: Sets rotation speed in degrees per second.
+* `entity:GetAngularVelocity()`: Returns rotational velocity.
+* `entity:AddTorque(torque)`: Applies rotational impulse.
+* `entity:SetMass(mass)`: Distributes total mass evenly across all body parts.
+* `entity:GetMass()`: Returns combined total mass of all parts.
+* `entity:SetGravityScale(scale)`: Sets gravity multiplier (`0` for zero gravity).
+* `entity:GetGravityScale()`: Returns current gravity multiplier.
+* `entity:SetKinematic(enabled)`: When `true`, object ignores external physics forces.
+* `entity:IsKinematic()`: Returns `true` if kinematic mode is enabled.
+* `entity:SetCollisionEnabled(enabled)`: Enables or disables all colliders.
+* `entity:IsCollisionEnabled()`: Returns `true` if colliders are active.
+* `entity:SetDrag(drag)`: Sets linear air resistance.
+* `entity:SetAngularDrag(drag)`: Sets rotational air resistance.
+* `entity:Freeze()`: Freezes position and rotation completely in place.
+* `entity:Unfreeze()`: Removes all movement constraints.
 
-### 5.2 Physics
-Applies across all child `Rigidbody2D` instances in the ragdoll or composite structure:
+#### State, Vitals & Destruction
+* `entity:IsAlive()`: Returns `true` if human is conscious or limbs have health.
+* `entity:IsDeleted()`: Returns `true` if the underlying GameObject is destroyed.
+* `entity:Destroy()`: Deletes the entity and triggers `OnDelete`.
+* `entity:Delete()`: Alias for `entity:Destroy()`.
+* `entity:GetInstanceId()`: Returns engine instance ID integer.
+* `entity:GetName()`: Returns the entity GameObject name.
+* `entity:SetName(name)`: Renames the entity GameObject.
+* `entity:GetType()`: Returns root component type name.
+* `entity:GetComponents()`: Returns an array table of all component names attached.
+* `entity:HasComponent(name)`: Checks if a component exists on this entity.
+* `entity:Ignite()`: Sets all flammable parts on fire.
+* `entity:Electrocute(charge)`: Discharges electricity into metal frames or Androids.
+* `entity:SetTemperature(celsius)`: Forces body temperature change (e.g., `1000.0` for red-hot metal).
+* `entity:GetTemperature()`: Returns current temperature in Celsius.
+* `entity:SetHealth(amount)`: Sets health on all limbs (`0` to `100`).
+* `entity:GetHealth()`: Returns average limb health.
+* `entity:SetMaxHealth(amount)`: Overrides maximum limb health.
+* `entity:GetMaxHealth()`: Returns max limb health.
+* `entity:SetColor(r, g, b, a)`: Sets sprite tint color (`0.0` to `1.0`).
+* `entity:GetColor()`: Returns table `{ r = ..., g = ..., b = ..., a = ... }`.
+* `entity:SetVisible(enabled)`: Shows or hides sprite renderers.
+* `entity:IsVisible()`: Returns `true` if sprites are visible.
+* `entity:SetLayer(layer)`: Sets GameObject layer across all children.
+* `entity:GetLayer()`: Returns current layer index.
+* `entity:SetTag(tag)`: Assigns a custom string tag to the entity.
+* `entity:HasTag(tag)`: Returns `true` if entity contains the specified custom tag.
+* `entity:RemoveTag(tag)`: Removes the specified custom tag.
+* `entity:Dismember()`: Severely shatters all physics joints and causes bleeding.
+* `entity:Crush()`: Crushes flesh and bones into bloody chunks.
+* `entity:Disintegrate()`: Vaporizes flesh down to the skeleton.
+* `entity:Heal()`: Extinguishes fire, resets temperature to 37°C, mends bones, stops bleeding, and injects `LIFE` serum.
+* `entity:Inject(liquidName, amount)`: Injects fluids directly into the bloodstream (e.g., `"LIFE"`, `"ACID"`, `"BLOOD"`).
 
-| Method | Returns | Description |
-| :--- | :--- | :--- |
-| `entity:AddForce(fx, fy)` | `nil` | Applies an instant impulse force to all parts. |
-| `entity:AddForceAtPosition(fx, fy, px, py)` | `nil` | Applies an impulse force at a specific world coordinate. |
-| `entity:SetVelocity(vx, vy)` | `nil` | Sets the linear velocity of all body parts directly. |
-| `entity:GetVelocity()` | `LuaVector2` | Returns linear velocity of the primary body part. |
-| `entity:AddVelocity(vx, vy)` | `nil` | Adds a velocity delta vector to all rigidbodies. |
-| `entity:SetAngularVelocity(speed)` | `nil` | Sets rotational speed in degrees/sec. |
-| `entity:GetAngularVelocity()` | `number` | Returns current rotational velocity. |
-| `entity:AddTorque(torque)` | `nil` | Applies an instant rotational impulse. |
-| `entity:SetMass(totalMass)` | `nil` | Divides `totalMass` equally across all physical parts. |
-| `entity:GetMass()` | `number` | Returns the combined mass of all rigidbodies. |
-| `entity:SetGravityScale(scale)` | `nil` | Multiplies global gravity (`0` = weightless). |
-| `entity:GetGravityScale()` | `number` | Returns current gravity multiplier. |
-| `entity:SetKinematic(enabled)` | `nil` | Toggles Rigidbody between `Kinematic` and `Dynamic`. |
-| `entity:IsKinematic()` | `boolean` | Checks if physics calculations are disabled (kinematic). |
-| `entity:SetCollisionEnabled(enabled)` | `nil` | Enables or disables all attached `Collider2D` components. |
-| `entity:IsCollisionEnabled()` | `boolean` | Checks if collision is active. |
-| `entity:SetDrag(drag)` | `nil` | Sets linear air resistance. |
-| `entity:SetAngularDrag(drag)` | `nil` | Sets rotational air resistance. |
-| `entity:Freeze()` | `nil` | Freezes position and rotation (`RigidbodyConstraints2D.FreezeAll`). |
-| `entity:Unfreeze()` | `nil` | Clears all movement constraints. |
-
-### 5.3 Identity, State & Vitals
-| Method | Returns | Description |
-| :--- | :--- | :--- |
-| `entity:IsAlive()` | `boolean` | Checks whether consciousness > 0.01 or limb health > 0. |
-| `entity:IsDeleted()` | `boolean` | Checks if the underlying Unity GameObject has been destroyed. |
-| `entity:Destroy()` | `nil` | Dispatches `OnDelete` and destroys the GameObject immediately. |
-| `entity:Delete()` | `nil` | Alias for `entity:Destroy()`. |
-| `entity:GetInstanceId()` | `number` | Returns Unity's unique instance ID. |
-| `entity:GetName()` | `string` | Gets GameObject name. |
-| `entity:SetName(name)` | `nil` | Renames GameObject. |
-| `entity:GetType()` | `string` | Returns the class name of the root component. |
-| `entity:GetComponents()` | `table` | Returns an array of component type names attached to this entity. |
-| `entity:HasComponent(name)` | `boolean` | Checks if a component exists on this entity (case-insensitive). |
-
-### 5.4 Health, Combat & Damage Effects
-| Method | Returns | Description |
-| :--- | :--- | :--- |
-| `entity:Ignite()` | `nil` | Ignites all flammable parts (`PhysicalBehaviour.Ignite()`). |
-| `entity:Electrocute(charge)` | `nil` | Adds electric charge, triggering sparks, shocks, or Android failure. |
-| `entity:SetTemperature(celsius)` | `nil` | Forces physical temperature (e.g., `1000` for red-hot metal). |
-| `entity:GetTemperature()` | `number` | Returns current body/part temperature in Celsius. |
-| `entity:SetHealth(value)` | `nil` | Clamps and sets health (0 to 100) across all limbs. |
-| `entity:GetHealth()` | `number` | Returns the average health across all limbs. |
-| `entity:SetMaxHealth(value)` | `nil` | Sets `InitialHealth` for all limbs. |
-| `entity:GetMaxHealth()` | `number` | Returns max health of the base limb. |
-| `entity:SetColor(r, g, b, a)` | `nil` | Sets `SpriteRenderer.color` (values from `0.0` to `1.0`). |
-| `entity:GetColor()` | `table` | Returns `{ r = ..., g = ..., b = ..., a = ... }`. |
-| `entity:SetVisible(bool)` | `nil` | Enables/disables all SpriteRenderers. |
-| `entity:IsVisible()` | `boolean` | Returns sprite visibility state. |
-| `entity:SetLayer(layerIndex)` | `nil` | Sets GameObject layer recursively across all children. |
-| `entity:GetLayer()` | `number` | Returns root layer index. |
-| `entity:SetTag(tag)` | `nil` | Registers a custom string tag on this entity. |
-| `entity:HasTag(tag)` | `boolean` | Checks whether the custom tag is present. |
-| `entity:RemoveTag(tag)` | `nil` | Removes the custom tag. |
-| `entity:Dismember()` | `nil` | Detaches joints, adds explosive radial force, and sets bleeding rate to 15. |
-| `entity:Crush()` | `nil` | Crushes flesh, bones, and organs into bloody pulp. |
-| `entity:Disintegrate()` | `nil` | Vaporizes flesh down to the clean skeleton. |
-| `entity:Heal()` | `nil` | Extinguishes fire, sets temperature to 37°C, mends bones, stops bleeding, injects 20 units of `LIFE` serum, and restores consciousness. |
-| `entity:Inject(liquid, amount)` | `nil` | Injects fluids directly into the circulatory system (e.g., `"LIFE"`, `"ACID"`, `"BLOOD"`). |
-
-### 5.5 Collision Masking & Spatial Queries
-| Method | Returns | Description |
-| :--- | :--- | :--- |
-| `entity:GetColliders()` | `table` | Returns an array of attached collider class names. |
-| `entity:SetCollisionLayer(layer)` | `nil` | Alias for `SetLayer(layer)`. |
-| `entity:GetCollisionLayer()` | `number` | Returns current collision layer. |
-| `entity:SetCollisionMask(mask)` | `nil` | Sets layer collision interaction using a 32-bit integer bitfield. |
-| `entity:GetCollisionMask()` | `number` | Returns full collision mask (`~0`). |
-| `entity:IgnoreCollision(other, bool)` | `nil` | Ignores or restores physics collision against another specific `LuaEntity`. |
-| `entity:OverlapCircle(radius)` | `table` | Returns array of `LuaEntity` instances whose colliders overlap this circle. |
-| `entity:OverlapBox(w, h)` | `table` | Returns array of `LuaEntity` instances whose colliders overlap this oriented box. |
+#### Colliders & Overlaps
+* `entity:GetColliders()`: Returns a table of collider type names.
+* `entity:SetCollisionLayer(layer)`: Sets collision layer.
+* `entity:GetCollisionLayer()`: Returns collision layer.
+* `entity:SetCollisionMask(maskBitfield)`: Sets layer collision mask.
+* `entity:GetCollisionMask()`: Returns collision mask.
+* `entity:IgnoreCollision(otherEntity, ignoreBool)`: Disables or enables collision between two entities.
+* `entity:OverlapCircle(radius)`: Returns a table of other entities inside a circle around this entity.
+* `entity:OverlapBox(width, height)`: Returns a table of other entities inside a box around this entity.
 
 ---
 
-## 6. ⌨️ Input API (`Input`)
-
-Polled inputs for keyboards and mouse actions:
-
-| Method | Returns | Description |
-| :--- | :--- | :--- |
-| `Input.IsKeyDown(keyName)` | `boolean` | `true` only on the frame the key was pressed down (e.g. `"F"`, `"Space"`, `"E"`). |
-| `Input.IsKeyHeld(keyName)` | `boolean` | `true` while the key is being held down. |
-| `Input.IsKeyUp(keyName)` | `boolean` | `true` only on the frame the key was released. |
-| `Input.IsMouseButtonDown(button)`| `boolean` | `true` on mouse press down (`0` = Left, `1` = Right, `2` = Middle). |
-| `Input.IsMouseButtonHeld(button)`| `boolean` | `true` while mouse button is held down. |
-| `Input.IsMouseButtonUp(button)` | `boolean` | `true` on mouse button release. |
-| `Input.GetMouseScrollDelta()` | `number` | Vertical scroll delta of the mouse wheel. |
-| `Input.GetMouseWorldPosition()` | `table` | Returns `{ x = ..., y = ... }` world coordinates under the cursor. |
+### 5. ⌨️ Input API (`Input`)
+* `Input.IsKeyDown(keyName)`: Returns `true` on the single frame a key (e.g., `"F"`, `"Space"`, `"Tab"`, `"E"`) is pressed down.
+* `Input.IsKeyHeld(keyName)`: Returns `true` continuously while the key is held down.
+* `Input.IsKeyUp(keyName)`: Returns `true` on the frame the key is released.
+* `Input.IsMouseButtonDown(button)`: Returns `true` on click (`0` = Left, `1` = Right, `2` = Middle).
+* `Input.IsMouseButtonHeld(button)`: Returns `true` while mouse button is held.
+* `Input.IsMouseButtonUp(button)`: Returns `true` on mouse button release.
+* `Input.GetMouseScrollDelta()`: Returns vertical scroll wheel movement.
+* `Input.GetMouseWorldPosition()`: Returns a table `{ x = ..., y = ... }` of 2D world mouse coordinates.
 
 ---
 
-## 7. 👥 Spawn API (`Spawn`)
-
-Spawns native game assets (such as `"Human"`, `"Android"`, `"Sword"`, etc.):
-
-| Method | Returns | Description |
-| :--- | :--- | :--- |
-| `Spawn.Create(assetName, x, y)` | `LuaEntity` | Instantiates a native prefab at world coordinates `(x, y)`. |
-| `Spawn.CreateAtRotation(name, x, y, rot)` | `LuaEntity` | Instantiates a prefab with a specific Z rotation angle in degrees. |
-| `Spawn.CreateBatch(name, posTable)` | `table` | Instantiates multiple entities. `posTable = { {x=1, y=2}, {x=3, y=4} }`. |
-| `Spawn.Clone(entity, x, y)` | `LuaEntity` | Clones an existing `LuaEntity` and places it at `(x, y)`. |
-| `Spawn.GetAvailableAssets()` | `table` | Returns an array of all native spawnable asset names found in game memory. |
-| `Spawn.Exists(assetName)` | `boolean` | Checks if a spawnable asset exists by name. |
+### 6. 👥 Spawn API (`Spawn`)
+* `Spawn.Create(assetName, x, y)`: Spawns native entities like `"Human"` or `"Android"` and returns a `LuaEntity`.
+* `Spawn.CreateAtRotation(assetName, x, y, rot)`: Spawns an asset with rotation in degrees.
+* `Spawn.CreateBatch(assetName, positionsTable)`: Spawns multiple entities. Format: `{ {x=1, y=2}, {x=3, y=4} }`.
+* `Spawn.Clone(entity, x, y)`: Duplicates an existing entity at specified coordinates.
+* `Spawn.GetAvailableAssets()`: Returns a table list of all spawnable asset names in the game.
+* `Spawn.Exists(assetName)`: Returns `true` if an asset exists with that name.
 
 ---
 
-## 8. 🌍 World & Physics API (`World` & `Physics`)
-
-### 8.1 World Queries
-| Method | Returns | Description |
-| :--- | :--- | :--- |
-| `World.GetEntities()` | `table` | Returns all active root `LuaEntity` objects in the scene. |
-| `World.GetEntitiesInRadius(x, y, r)` | `table` | Returns entities within radius `r` of `(x, y)`. |
-| `World.GetEntitiesInBox(x, y, w, h)` | `table` | Returns entities inside an axis-aligned box. |
-| `World.GetEntityById(instanceId)` | `LuaEntity` | Finds a GameObject by its Unity Instance ID. |
-| `World.GetEntitiesByName(name)` | `table` | Finds entities containing `name` in their GameObject name. |
-| `World.GetEntitiesByTag(tag)` | `table` | Finds entities matching Unity tag. |
-| `World.GetEntityCount()` | `number` | Returns total number of active physical bodies. |
-| `World.GetBounds()` | `table` | Returns simulation boundaries: `{ minX = -100, maxX = 100, minY = -50, maxY = 50 }`. |
-| `World.GetMouseWorldPosition()` | `table` | Alias for `Input.GetMouseWorldPosition()`. |
-| `World.GetCameraPosition()` | `table` | Returns main camera coordinates `{ x = ..., y = ... }`. |
-
-### 8.2 Physics
-* `Physics.Explode(x, y, radius, force)`: Creates an explosion at `(x, y)`. Propels all rigidbodies within `radius` outward using distance-attenuated impulse force.
-
-```lua
--- Detonate an explosive shockwave at mouse location on Right Click
-if Input.IsMouseButtonDown(1) then
-    local m = Input.GetMouseWorldPosition()
-    Physics.Explode(m.x, m.y, 8.0, 50.0)
-end
-```
+### 7. 🌍 World & Physics API (`World` & `Physics`)
+* `World.GetEntities()`: Returns a table of all active root entities in the scene.
+* `World.GetEntitiesInRadius(x, y, radius)`: Returns entities within a radius.
+* `World.GetEntitiesInBox(x, y, width, height)`: Returns entities inside a box.
+* `World.GetEntityById(instanceId)`: Finds an entity by its Unity instance ID.
+* `World.GetEntitiesByName(name)`: Returns entities whose names contain the string.
+* `World.GetEntitiesByTag(tag)`: Returns entities matching a Unity tag.
+* `World.GetEntityCount()`: Returns total count of active physical objects.
+* `World.GetBounds()`: Returns boundaries table: `{ minX = -100, maxX = 100, minY = -50, maxY = 50 }`.
+* `World.GetMouseWorldPosition()`: Returns `{ x = ..., y = ... }`.
+* `World.GetCameraPosition()`: Returns main camera coordinates `{ x = ..., y = ... }`.
+* `Physics.Explode(x, y, radius, force)`: Triggers a physics explosion that throws entities away from the center point.
 
 ---
 
-## 9. ⏱️ Time API (`Time`)
-
-Control simulation speed and query frame times:
-
-| Method | Returns | Description |
-| :--- | :--- | :--- |
-| `Time.GetDeltaTime()` | `number` | Elapsed time since last frame in seconds (`Time.deltaTime`). |
-| `Time.GetTime()` | `number` | Total time elapsed since game launch (`Time.time`). |
-| `Time.GetFixedDeltaTime()` | `number` | Physics step interval (`Time.fixedDeltaTime`). |
-| `Time.GetTimeScale()` | `number` | Current simulation time scale. |
-| `Time.SetTimeScale(scale)` | `nil` | Locks game speed (clamped between `0.01` and `10.0`). Prevents the engine from resetting slow-mo. |
-| `Time.GetFrameRate()` | `number` | Current instantaneous Frames Per Second (FPS). |
+### 8. ⏱️ Time API (`Time`)
+* `Time.GetDeltaTime()`: Returns frame elapsed time in seconds.
+* `Time.GetTime()`: Returns total running time since launch.
+* `Time.GetFixedDeltaTime()`: Returns physics step time.
+* `Time.GetTimeScale()`: Returns current game simulation speed.
+* `Time.SetTimeScale(scale)`: Locks simulation speed (e.g., `0.2` for slow-mo, `1.0` for normal).
+* `Time.GetFrameRate()`: Returns current FPS.
 
 ---
 
-## 10. 🗺️ Map & Environment API (`Map`)
+### 9. 🗺️ Map & Environment API (`Map`)
+* `Map.SetGravity(gx, gy)`: Changes world gravity vector (Default: `0, -9.81`).
+* `Map.GetGravity()`: Returns `{ x = ..., y = ... }`.
+* `Map.SetTimeScale(scale)`: Alias for `Time.SetTimeScale(scale)`.
+* `Map.CreateWall(x, y, width, height, material)`: Spawns an indestructible structural wall (`"Metal"`, `"Wood"`, `"Concrete"`).
+* `Map.GetBounds()`: Returns map boundary table.
+* `Map.GetEntities()`: Returns all entities in the map.
+* `Map.Register(mapConfig)`: Registers a map preset into the Toybox Maps tab.
 
-Construct custom levels, change physics constants, or register Toybox presets:
-
-| Method | Returns | Description |
-| :--- | :--- | :--- |
-| `Map.SetGravity(gx, gy)` | `nil` | Sets 2D world gravity vector (Default: `0, -9.81`). |
-| `Map.GetGravity()` | `table` | Returns `{ x = ..., y = ... }` gravity. |
-| `Map.SetTimeScale(scale)` | `nil` | Alias for `Time.SetTimeScale(scale)`. |
-| `Map.CreateWall(x, y, w, h, mat)` | `LuaEntity` | Instantly spawns a static, indestructible structural wall. `mat`: `"Metal"`, `"Wood"`, or `"Concrete"`. |
-| `Map.GetBounds()` | `table` | Returns `{ minX, maxX, minY, maxY }`. |
-| `Map.GetEntities()` | `table` | Alias for `World.GetEntities()`. |
-| `Map.Register(config)` | `nil` | Registers a map layout into the Toybox **Maps** tab. |
-
-### Map Registration Example:
 ```lua
 Map.Register({
-    name = "Zero-G Killbox",
-    description = "Enclosed metal arena with zero gravity.",
-    gravity = { 0, 0 },
+    name = "Bunker",
+    description = "Reinforced concrete chamber.",
+    gravity = { 0, -9.81 },
     structures = {
-        { x = 0, y = -10, width = 30, height = 1, material = "Metal" },
-        { x = 0, y = 10, width = 30, height = 1, material = "Metal" },
-        { x = -15, y = 0, width = 1, height = 20, material = "Metal" },
-        { x = 15, y = 0, width = 1, height = 20, material = "Metal" }
+        { x = 0, y = -5, width = 20, height = 1, material = "Concrete" },
+        { x = -10, y = 0, width = 1, height = 10, material = "Metal" },
+        { x = 10, y = 0, width = 1, height = 10, material = "Metal" }
     }
 })
 ```
 
 ---
 
-## 11. ⚔️ Custom Item API (`Item`)
+### 10. ⚔️ Custom Item API (`Item`)
+* `Item.Register(configTable)`: Registers an item into the Custom Toybox (`Tab` menu).
+* `Item.Unregister(itemName)`: Unregisters an item.
+* `Item.GetRegisteredItems()`: Returns a table of all registered custom item names.
+* `Item.GetItem(itemName)`: Returns item info `{ name, description, baseItem }`.
+* `Item.Spawn(itemName, x, y)`: Spawns a registered custom item at world coordinates.
+* `Item.OnSpawn(configTable, function(entity) ... end)`: Registers item and sets spawn callback.
+* `Item.OnUse(configTable, function(entity) ... end)`: Registers item and binds activation action when activated/used.
 
-Registers items into the Custom Toybox (`Tab` menu) and handles usage callbacks.
-
-| Method | Returns | Description |
-| :--- | :--- | :--- |
-| `Item.Register(configTable)` | `nil` | Registers an item template in the Toybox. |
-| `Item.Unregister(itemName)` | `nil` | Removes an item from the registry. |
-| `Item.GetRegisteredItems()` | `table` | Returns array of all registered custom item names. |
-| `Item.GetItem(itemName)` | `table` | Returns `{ name, description, baseItem }` or `nil`. |
-| `Item.Spawn(itemName, x, y)` | `LuaEntity` | Spawns the custom item at world coordinates. |
-| `Item.OnSpawn(configTable, fn)` | `nil` | Shortcut to assign `configTable.onSpawn = fn` and register. |
-| `Item.OnUse(configTable, fn)` | `nil` | Registers an item and attaches an activation listener triggered when the player uses the item. |
-
-### Configuration Table Schema:
 ```lua
 Item.Register({
-    name = "Plasma Blade",
-    description = "Slices and superheats targets upon contact.",
-    baseItem = "Sword",             -- Native prefab used as base
-    sprite = "sprites/plasma.png",  -- Path relative to mod directory
+    name = "Energy Saber",
+    description = "Hot energy weapon.",
+    baseItem = "Sword",
+    sprite = "blade.png",
     onSpawn = function(entity)
         entity:SetColor(0.2, 0.8, 1.0, 1.0)
-        entity:SetTemperature(500)
+        entity:SetTemperature(800)
     end
 })
 
--- Item with Activation Callback (F / Context Action)
 Item.OnUse({
-    name = "Overcharge Cell",
-    description = "Press Use to discharge massive electricity.",
+    name = "Healing Beacon",
+    description = "Heals everyone nearby when used.",
     baseItem = "Flashlight"
 }, function(entity)
     local pos = entity:GetPosition()
-    Physics.Explode(pos.x, pos.y, 5, 20)
-    entity:Electrocute(100)
+    local nearby = World.GetEntitiesInRadius(pos.x, pos.y, 6)
+    for i = 1, #nearby do
+        nearby[i]:Heal()
+    end
 end)
 ```
 
 ---
 
-## 12. 🛠️ Debug API (`Debug`)
-
-Visual primitives drawn in world-space using immediate-mode rendering (`OnPostRender`):
-
-| Method | Parameters | Description |
-| :--- | :--- | :--- |
-| `Debug.DrawLine(x1, y1, x2, y2, duration)` | Numbers | Draws a red debug line from point A to point B for `duration` seconds. |
-| `Debug.DrawCircle(cx, cy, radius, duration)` | Numbers | Draws a red wireframe circle. |
-| `Debug.DrawBox(cx, cy, width, height, duration)` | Numbers | Draws a red wireframe box centered at `(cx, cy)`. |
-| `Debug.GetEntityInfo(entity)` | `entity` | Returns a debug string: `"Name (ID:...) Pos:(x,y,z)"`. |
-| `Debug.IsEnabled()` | None | Returns `true`. |
-
-```lua
--- Visualize an entity's bounding box and trajectory line every frame
-function Update(dt)
-    local m = Input.GetMouseWorldPosition()
-    Debug.DrawCircle(m.x, m.y, 1.5, 0.02)
-end
-```
+### 11. 🛠️ Debug Drawing API (`Debug`)
+* `Debug.DrawLine(x1, y1, x2, y2, duration)`: Draws a red debug line for `duration` seconds.
+* `Debug.DrawCircle(cx, cy, radius, duration)`: Draws a red wireframe circle.
+* `Debug.DrawBox(cx, cy, width, height, duration)`: Draws a red wireframe box centered at `(cx, cy)`.
+* `Debug.GetEntityInfo(entity)`: Returns debug string containing name, instance ID, and coordinates.
+* `Debug.IsEnabled()`: Returns `true`.
 
 ---
 
-## 13. 📦 Mod Management API (`Mod`)
-
-Access metadata and manage loaded mods dynamically:
-
-| Method | Returns | Description |
-| :--- | :--- | :--- |
-| `Mod.GetName()` | `string` | Returns the current mod's directory/display name. |
-| `Mod.GetVersion()` | `string` | Returns the Lua Loader runtime version (`"3.0.0"`). |
-| `Mod.GetPath()` | `string` | Returns the absolute file path to the mod folder. |
-| `Mod.GetAllMods()` | `table` | Returns array of names of all currently loaded Lua mods. |
-| `Mod.IsLoaded(modName)` | `boolean` | Checks if a given mod is active. |
-| `Mod.Reload(modName)` | `nil` | Hot-reloads the target mod by re-executing its `main.lua`. |
-| `Mod.GetMetadata()` | `table` | Returns `{ name = ..., dir = ... }`. |
+### 12. 📦 Mod Management API (`Mod`)
+* `Mod.GetName()`: Returns current mod name.
+* `Mod.GetVersion()`: Returns loader version (`"3.0.0"`).
+* `Mod.GetPath()`: Returns absolute path to current mod directory.
+* `Mod.GetAllMods()`: Returns table of all loaded mod names.
+* `Mod.IsLoaded(modName)`: Returns `true` if the specified mod is loaded.
+* `Mod.Reload(modName)`: Hot-reloads the mod by re-running its `main.lua`.
+* `Mod.GetMetadata()`: Returns `{ name = ..., dir = ... }`.
 
 ---
 
-## 14. 📐 Math Extensions (`math`)
-
-The engine extends Lua’s standard `math` library with Unity-specific math calculations:
-
-| Function | Parameters | Returns | Description |
-| :--- | :--- | :--- | :--- |
-| `math.Clamp(val, min, max)` | `(number, number, number)` | `number` | Clamps value between `min` and `max`. |
-| `math.Lerp(a, b, t)` | `(number, number, number)` | `number` | Linear interpolation between `a` and `b` by factor `t`. |
-| `math.DegToRad(deg)` | `(number)` | `number` | Converts degrees to radians. |
-| `math.RadToDeg(rad)` | `(number)` | `number` | Converts radians to degrees. |
-| `math.Distance(x1, y1, x2, y2)` | `(number, number, number, number)` | `number` | Calculates 2D Euclidean distance. |
-| `math.Angle(x1, y1, x2, y2)` | `(number, number, number, number)` | `number` | Returns angle in degrees from point 1 to point 2. |
-| `math.Random(min, max)` | `(number, number)` | `number` | Returns a random float between `min` and `max`. |
-| `math.RandomInt(min, max)` | `(int, int)` | `number` | Returns a random integer between `min` (inclusive) and `max` (exclusive). |
+### 13. 📐 Extended Math API (`math`)
+Engine additions to Lua's standard `math` library:
+* `math.Clamp(val, min, max)`: Clamps number between min and max.
+* `math.Lerp(a, b, t)`: Linear interpolation between `a` and `b` by factor `t`.
+* `math.DegToRad(deg)`: Converts degrees to radians.
+* `math.RadToDeg(rad)`: Converts radians to degrees.
+* `math.Distance(x1, y1, x2, y2)`: Distance between two 2D points.
+* `math.Angle(x1, y1, x2, y2)`: Angle in degrees from point 1 to point 2.
+* `math.Random(min, max)`: Returns a random floating-point number.
+* `math.RandomInt(min, max)`: Returns a random integer between min and max.
 
 ---
 
