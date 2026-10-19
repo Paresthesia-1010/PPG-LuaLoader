@@ -38,13 +38,13 @@ Following recent security concerns regarding traditional C# DLL mods, this proje
 ## 🚀 Quickstart: Writing Your First Lua Mod
 
 ### 📁 Mod Folder Structure
-To create a custom mod, navigate to your game's **`Mods/`** directory and create a dedicated folder for your mod (e.g., `Mods/PlasmaBladeMod/`). 
+To create a custom mod, navigate to your game's **`Mods/`** directory and create a dedicated folder for your mod (e.g., `Mods/Sword/`). 
 
 Your mod folder should be structured like this:
 ```text
 People Playground/
  └── Mods/
-      └── PlasmaBladeMod/
+      └── Sword/
            ├── mod.json       <-- Mod metadata & display name
            ├── thumb.png      <-- Custom icon image (Thumbnail for the Toybox menu)
            └── main.lua       <-- Main Lua execution script
@@ -54,7 +54,7 @@ People Playground/
 Create a file named `mod.json` inside your mod folder:
 ```json
 {
-  "Name": "Flaming Plasma Blade",
+  "Name": "1000°C Sword",
   "Author": "YourName",
   "Description": "Custom burning sword powered by Lua!",
   "ModVersion": "1.0",
@@ -67,31 +67,35 @@ Create a file named `mod.json` inside your mod folder:
 ### 📜 2. `main.lua` (Script)
 Create a file named `main.lua` alongside your config:
 ```lua
--- =========================================================
--- Flaming Plasma Blade Mod Template
--- =========================================================
+local swords = {}
 
 function Initialize()
-    Log("Initializing Flaming Plasma Blade...")
+    Log("Initializing 1000°C Sword Mod...")
 
-    -- Register a custom weapon into the Custom Toybox
     Item.Register({
-        name = "Flaming Plasma Blade",
-        description = "A blazing custom blade created purely in Lua!",
+        name = "1000°C Sword",
+        description = "A sword permanently maintained at 1000°C.",
         baseItem = "Sword",
-        sprite = "thumb.png", -- Optional: Use your PNG as the item's world texture
-        
-        -- Triggered automatically when spawned from the Custom Toybox
+
         onSpawn = function(swordEntity)
-            Log("Plasma Blade materialized in physical space!")
-            swordEntity:Ignite()
             swordEntity:SetTemperature(1000.0)
+            table.insert(swords, swordEntity)
+
+            Log("Sword temperature set to 1000°C.")
         end
     })
 end
 
 function Update(dt)
-    -- Frame tick logic here
+    for i = #swords, 1, -1 do
+        local sword = swords[i]
+
+        if sword ~= nil then
+            sword:SetTemperature(1000.0)
+        else
+            table.remove(swords, i)
+        end
+    end
 end
 ```
 
