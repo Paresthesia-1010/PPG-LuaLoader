@@ -2,6 +2,8 @@
 
 > **WIP.** Non-official Lua mod loader for People Playground. This is a personal test project.
 
+**Languages:** English · [한국어](README.ko-KR.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja-JP.md) · [Русский](README.ru-RU.md)
+
 [![Releases](https://img.shields.io/badge/Release-v3.0_Final-blue.svg)](https://github.com/Paresthesia-1010/PPG-LuaLoader/releases/tag/main)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
