@@ -10,98 +10,567 @@ using UnityEngine.SceneManagement;
 
 namespace PPG_LuaLoader
 {
+    // ========================================================================
+    // Auxiliary Vector2 Class for Lua
+    // ========================================================================
+    [MoonSharpUserData]
+    public class LuaVector2
+    {
+        public float x;
+        public float y;
+
+        public LuaVector2() { x = 0f; y = 0f; }
+        public LuaVector2(float x, float y) { this.x = x; this.y = y; }
+
+        public float Magnitude() => Mathf.Sqrt(x * x + y * y);
+
+        public LuaVector2 Normalized()
+        {
+            float mag = Magnitude();
+            return mag > 0.0001f ? new LuaVector2(x / mag, y / mag) : new LuaVector2(0f, 0f);
+        }
+
+        public float Dot(LuaVector2 other) => (other == null) ? 0f : (x * other.x + y * other.y);
+        public float Distance(LuaVector2 other) => (other == null) ? 0f : Mathf.Sqrt(Mathf.Pow(x - other.x, 2) + Mathf.Pow(y - other.y, 2));
+    }
+
+    // ========================================================================
+    // Collision Event Bridge MonoBehaviour
+    // ========================================================================
+    public class LuaItemUseListener : MonoBehaviour
+    {
+        public Action OnUseAction;
+
+        public void Use()
+        {
+            OnUseAction?.Invoke();
+        }
+        public Action<Collision2D> onCollisionEnterAction;
+        public Action<Collision2D> onCollisionExitAction;
+
+        private void OnCollisionEnter2D(Collision2D collision) => onCollisionEnterAction?.Invoke(collision);
+        private void OnCollisionExit2D(Collision2D collision) => onCollisionExitAction?.Invoke(collision);
+    }
+
+    // ========================================================================
+    // Immediate 2D Debug Geometry Renderer
+    // ========================================================================
+    public class LuaDebugRenderer : MonoBehaviour
+    {
+        private class DebugShape
+        {
+            public int shapeType; // 0: Line, 1: Circle, 2: Box
+            public Vector2 p1, p2;
+            public float radius, width, height;
+            public float expireTime;
+        }
+
+        private static readonly List<DebugShape> activeShapes = new List<DebugShape>();
+        private static Material renderMaterial;
+
+        public static void AddLine(Vector2 a, Vector2 b, float duration) =>
+            activeShapes.Add(new DebugShape { shapeType = 0, p1 = a, p2 = b, expireTime = Time.time + duration });
+
+        public static void AddCircle(Vector2 center, float radius, float duration) =>
+            activeShapes.Add(new DebugShape { shapeType = 1, p1 = center, radius = radius, expireTime = Time.time + duration });
+
+        public static void AddBox(Vector2 center, float width, float height, float duration) =>
+            activeShapes.Add(new DebugShape { shapeType = 2, p1 = center, width = width, height = height, expireTime = Time.time + duration });
+
+        private void OnPostRender()
+        {
+            if (activeShapes.Count == 0) return;
+
+            if (!renderMaterial)
+            {
+                Shader shader = Shader.Find("Hidden/Internal-Colored");
+                renderMaterial = new Material(shader) { hideFlags = HideFlags.HideAndDontSave };
+            }
+
+            renderMaterial.SetPass(0);
+            GL.PushMatrix();
+            GL.Begin(GL.LINES);
+            GL.Color(Color.red);
+
+            float now = Time.time;
+            for (int i = activeShapes.Count - 1; i >= 0; i--)
+            {
+                var s = activeShapes[i];
+                if (now > s.expireTime)
+                {
+                    activeShapes.RemoveAt(i);
+                    continue;
+                }
+
+                if (s.shapeType == 0)
+                {
+                    GL.Vertex3(s.p1.x, s.p1.y, 0f);
+                    GL.Vertex3(s.p2.x, s.p2.y, 0f);
+                }
+                else if (s.shapeType == 1)
+                {
+                    int segs = 24;
+                    for (int j = 0; j < segs; j++)
+                    {
+                        float a1 = j * Mathf.PI * 2f / segs;
+                        float a2 = (j + 1) * Mathf.PI * 2f / segs;
+                        GL.Vertex3(s.p1.x + Mathf.Cos(a1) * s.radius, s.p1.y + Mathf.Sin(a1) * s.radius, 0f);
+                        GL.Vertex3(s.p1.x + Mathf.Cos(a2) * s.radius, s.p1.y + Mathf.Sin(a2) * s.radius, 0f);
+                    }
+                }
+                else if (s.shapeType == 2)
+                {
+                    float hw = s.width / 2f, hh = s.height / 2f;
+                    Vector2 bl = s.p1 + new Vector2(-hw, -hh), br = s.p1 + new Vector2(hw, -hh);
+                    Vector2 tr = s.p1 + new Vector2(hw, hh), tl = s.p1 + new Vector2(-hw, hh);
+
+                    GL.Vertex3(bl.x, bl.y, 0f); GL.Vertex3(br.x, br.y, 0f);
+                    GL.Vertex3(br.x, br.y, 0f); GL.Vertex3(tr.x, tr.y, 0f);
+                    GL.Vertex3(tr.x, tr.y, 0f); GL.Vertex3(tl.x, tl.y, 0f);
+                    GL.Vertex3(tl.x, tl.y, 0f); GL.Vertex3(bl.x, bl.y, 0f);
+                }
+            }
+            GL.End();
+            GL.PopMatrix();
+        }
+    }
+
+    // ========================================================================
+    // MoonSharp Lua Entity Wrapper
+    // ========================================================================
     [MoonSharpUserData]
     public class LuaEntity
     {
         private readonly GameObject internalObject;
+        private readonly HashSet<string> customTags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        public GameObject InternalObject => internalObject;
 
         public LuaEntity(GameObject targetObject)
         {
             this.internalObject = targetObject;
         }
 
-        public Table GetPosition(Script engine)
+        // --- Transform API ---
+        public void SetPosition(float x, float y)
         {
-            if (internalObject == null) return null;
-
-            Table posTable = new Table(engine);
-            Vector3 pos = internalObject.transform.position;
-            posTable["x"] = pos.x;
-            posTable["y"] = pos.y;
-            return posTable;
+            if (internalObject == null) return;
+            Vector3 current = internalObject.transform.position;
+            internalObject.transform.position = new Vector3(x, y, current.z);
+            Physics2D.SyncTransforms();
         }
 
+        public LuaVector2 GetPosition()
+        {
+            if (internalObject == null) return new LuaVector2(0f, 0f);
+            Vector3 pos = internalObject.transform.position;
+            return new LuaVector2(pos.x, pos.y);
+        }
+
+        public void SetRotation(float angle)
+        {
+            if (internalObject == null) return;
+            internalObject.transform.rotation = Quaternion.Euler(0f, 0f, angle);
+            Physics2D.SyncTransforms();
+        }
+
+        public float GetRotation() => internalObject != null ? internalObject.transform.eulerAngles.z : 0f;
+
+        public void SetScale(float x, float y)
+        {
+            if (internalObject == null) return;
+            internalObject.transform.localScale = new Vector3(x, y, 1f);
+        }
+
+        public LuaVector2 GetScale()
+        {
+            if (internalObject == null) return new LuaVector2(0f, 0f);
+            Vector3 scale = internalObject.transform.localScale;
+            return new LuaVector2(scale.x, scale.y);
+        }
+
+        public void SetLocalPosition(float x, float y)
+        {
+            if (internalObject == null) return;
+            internalObject.transform.localPosition = new Vector3(x, y, 0f);
+        }
+
+        public LuaVector2 GetLocalPosition()
+        {
+            if (internalObject == null) return new LuaVector2(0f, 0f);
+            Vector3 pos = internalObject.transform.localPosition;
+            return new LuaVector2(pos.x, pos.y);
+        }
+
+        public void SetParent(LuaEntity parent)
+        {
+            if (internalObject == null) return;
+            internalObject.transform.SetParent(parent?.internalObject != null ? parent.internalObject.transform : null);
+        }
+
+        public LuaEntity GetParent()
+        {
+            if (internalObject?.transform.parent == null) return null;
+            return new LuaEntity(internalObject.transform.parent.gameObject);
+        }
+
+        // --- Physics API ---
         public void AddForce(float forceX, float forceY)
         {
             if (internalObject == null) return;
-
             Rigidbody2D[] bodies = internalObject.GetComponentsInChildren<Rigidbody2D>();
             Vector2 forceVector = new Vector2(forceX, forceY);
-
             for (int i = 0; i < bodies.Length; i++)
             {
                 bodies[i].AddForce(forceVector, ForceMode2D.Impulse);
             }
         }
 
+        public void AddForceAtPosition(float fx, float fy, float px, float py)
+        {
+            if (internalObject == null) return;
+            Vector2 force = new Vector2(fx, fy);
+            Vector2 pos = new Vector2(px, py);
+            foreach (var rb in internalObject.GetComponentsInChildren<Rigidbody2D>())
+            {
+                rb.AddForceAtPosition(force, pos, ForceMode2D.Impulse);
+            }
+        }
+
         public void SetVelocity(float velocityX, float velocityY)
         {
             if (internalObject == null) return;
-
             Rigidbody2D[] bodies = internalObject.GetComponentsInChildren<Rigidbody2D>();
             Vector2 velocityVector = new Vector2(velocityX, velocityY);
-
             for (int i = 0; i < bodies.Length; i++)
             {
                 bodies[i].velocity = velocityVector;
             }
         }
 
+        public LuaVector2 GetVelocity()
+        {
+            var rb = internalObject != null ? internalObject.GetComponentInChildren<Rigidbody2D>() : null;
+            return rb != null ? new LuaVector2(rb.velocity.x, rb.velocity.y) : new LuaVector2(0f, 0f);
+        }
+
+        public void AddVelocity(float vx, float vy)
+        {
+            if (internalObject == null) return;
+            Vector2 delta = new Vector2(vx, vy);
+            foreach (var rb in internalObject.GetComponentsInChildren<Rigidbody2D>())
+            {
+                rb.velocity += delta;
+            }
+        }
+
+        public void SetAngularVelocity(float speed)
+        {
+            if (internalObject == null) return;
+            foreach (var rb in internalObject.GetComponentsInChildren<Rigidbody2D>())
+            {
+                rb.angularVelocity = speed;
+            }
+        }
+
+        public float GetAngularVelocity()
+        {
+            var rb = internalObject?.GetComponentInChildren<Rigidbody2D>();
+            return rb != null ? rb.angularVelocity : 0f;
+        }
+
+        public void AddTorque(float torque)
+        {
+            if (internalObject == null) return;
+            foreach (var rb in internalObject.GetComponentsInChildren<Rigidbody2D>())
+            {
+                rb.AddTorque(torque, ForceMode2D.Impulse);
+            }
+        }
+
+        public void SetMass(float mass)
+        {
+            if (internalObject == null) return;
+            var bodies = internalObject.GetComponentsInChildren<Rigidbody2D>();
+            if (bodies.Length == 0) return;
+            float perBody = Mathf.Max(0.001f, mass / bodies.Length);
+            foreach (var rb in bodies) rb.mass = perBody;
+        }
+
+        public float GetMass()
+        {
+            if (internalObject == null) return 0f;
+            float total = 0f;
+            foreach (var rb in internalObject.GetComponentsInChildren<Rigidbody2D>())
+            {
+                total += rb.mass;
+            }
+            return total;
+        }
+
+        public void SetGravityScale(float scale)
+        {
+            if (internalObject == null) return;
+            foreach (var rb in internalObject.GetComponentsInChildren<Rigidbody2D>())
+            {
+                rb.gravityScale = scale;
+            }
+        }
+
+        public float GetGravityScale()
+        {
+            var rb = internalObject?.GetComponentInChildren<Rigidbody2D>();
+            return rb != null ? rb.gravityScale : 1f;
+        }
+
+        public void SetKinematic(bool enabled)
+        {
+            if (internalObject == null) return;
+            foreach (var rb in internalObject.GetComponentsInChildren<Rigidbody2D>())
+            {
+                rb.bodyType = enabled ? RigidbodyType2D.Kinematic : RigidbodyType2D.Dynamic;
+            }
+        }
+
+        public bool IsKinematic()
+        {
+            var rb = internalObject?.GetComponentInChildren<Rigidbody2D>();
+            return rb != null && rb.bodyType == RigidbodyType2D.Kinematic;
+        }
+
+        public void SetCollisionEnabled(bool enabled)
+        {
+            if (internalObject == null) return;
+            foreach (var col in internalObject.GetComponentsInChildren<Collider2D>())
+            {
+                col.enabled = enabled;
+            }
+        }
+
+        public bool IsCollisionEnabled()
+        {
+            var col = internalObject?.GetComponentInChildren<Collider2D>();
+            return col != null && col.enabled;
+        }
+
+        public void SetDrag(float drag)
+        {
+            if (internalObject == null) return;
+            foreach (var rb in internalObject.GetComponentsInChildren<Rigidbody2D>())
+            {
+                rb.drag = drag;
+            }
+        }
+
+        public void SetAngularDrag(float drag)
+        {
+            if (internalObject == null) return;
+            foreach (var rb in internalObject.GetComponentsInChildren<Rigidbody2D>())
+            {
+                rb.angularDrag = drag;
+            }
+        }
+
+        public void Freeze()
+        {
+            if (internalObject == null) return;
+            foreach (var rb in internalObject.GetComponentsInChildren<Rigidbody2D>())
+            {
+                rb.constraints = RigidbodyConstraints2D.FreezeAll;
+            }
+        }
+
+        public void Unfreeze()
+        {
+            if (internalObject == null) return;
+            foreach (var rb in internalObject.GetComponentsInChildren<Rigidbody2D>())
+            {
+                rb.constraints = RigidbodyConstraints2D.None;
+            }
+        }
+
+        // --- Lifecycle API ---
+        public bool IsAlive()
+        {
+            if (internalObject == null) return false;
+
+            var person = internalObject.GetComponent<PersonBehaviour>();
+            if (person != null)
+            {
+                return person.Consciousness > 0.01f;
+            }
+
+            var limbs = internalObject.GetComponentsInChildren<LimbBehaviour>();
+            if (limbs.Length > 0)
+            {
+                foreach (var l in limbs)
+                {
+                    if (l.Health > 0f) return true;
+                }
+                return false;
+            }
+
+            return true;
+        }
+
+        public bool IsDeleted() => internalObject == null;
+
+        // Destroy and Delete are aliases for compatibility with both API naming styles.
+        public void Destroy()
+        {
+            if (internalObject != null)
+            {
+                LoaderPlugin.DispatchGlobalEvent("OnDelete", this);
+                UnityEngine.Object.Destroy(internalObject);
+            }
+        }
+
+        public int GetInstanceId() => internalObject != null ? internalObject.GetInstanceID() : 0;
+        public string GetName() => internalObject != null ? internalObject.name : string.Empty;
+        public void SetName(string name) { if (internalObject != null) internalObject.name = name; }
+
+        public new string GetType() => internalObject != null ? internalObject.GetType().Name : string.Empty;
+
+        public List<string> GetComponents()
+        {
+            var list = new List<string>();
+            if (internalObject == null) return list;
+            foreach (var c in internalObject.GetComponentsInChildren<Component>())
+            {
+                if (c != null && !list.Contains(c.GetType().Name)) list.Add(c.GetType().Name);
+            }
+            return list;
+        }
+
+        public bool HasComponent(string componentName)
+        {
+            if (internalObject == null || string.IsNullOrEmpty(componentName)) return false;
+            foreach (var c in internalObject.GetComponentsInChildren<Component>())
+            {
+                if (c != null && c.GetType().Name.Equals(componentName, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            return false;
+        }
+
+        // --- State API ---
         public void Ignite()
         {
             if (internalObject == null) return;
-
             PhysicalBehaviour[] physicalParts = internalObject.GetComponentsInChildren<PhysicalBehaviour>();
-            for (int i = 0; i < physicalParts.Length; i++)
-            {
-                physicalParts[i].Ignite();
-            }
+            for (int i = 0; i < physicalParts.Length; i++) physicalParts[i].Ignite();
         }
 
         public void Electrocute(float chargeAmount)
         {
             if (internalObject == null) return;
-
             PhysicalBehaviour[] physicalParts = internalObject.GetComponentsInChildren<PhysicalBehaviour>();
-            for (int i = 0; i < physicalParts.Length; i++)
-            {
-                physicalParts[i].Charge += chargeAmount;
-            }
+            for (int i = 0; i < physicalParts.Length; i++) physicalParts[i].Charge += chargeAmount;
         }
 
         public void SetTemperature(float degreesCelsius)
         {
             if (internalObject == null) return;
-
             PhysicalBehaviour[] physicalParts = internalObject.GetComponentsInChildren<PhysicalBehaviour>();
-            for (int i = 0; i < physicalParts.Length; i++)
+            for (int i = 0; i < physicalParts.Length; i++) physicalParts[i].Temperature = degreesCelsius;
+        }
+
+        public float GetTemperature()
+        {
+            var pb = internalObject?.GetComponentInChildren<PhysicalBehaviour>();
+            return pb != null ? pb.Temperature : 20f;
+        }
+
+        public void SetHealth(float value)
+        {
+            if (internalObject == null) return;
+            foreach (var limb in internalObject.GetComponentsInChildren<LimbBehaviour>())
             {
-                physicalParts[i].Temperature = degreesCelsius;
+                limb.Health = Mathf.Clamp(value, 0f, 100f);
             }
         }
+
+        public float GetHealth()
+        {
+            if (internalObject == null) return 0f;
+            var limbs = internalObject.GetComponentsInChildren<LimbBehaviour>();
+            if (limbs.Length == 0) return 100f;
+            float sum = 0f;
+            foreach (var l in limbs) sum += l.Health;
+            return sum / limbs.Length;
+        }
+
+        public void SetMaxHealth(float value)
+        {
+            if (internalObject == null) return;
+            foreach (var limb in internalObject.GetComponentsInChildren<LimbBehaviour>())
+            {
+                limb.InitialHealth = Mathf.Max(1f, value);
+            }
+        }
+
+        public float GetMaxHealth()
+        {
+            var limb = internalObject?.GetComponentInChildren<LimbBehaviour>();
+            return limb != null ? limb.InitialHealth : 100f;
+        }
+
+        public void SetColor(float r, float g, float b, float a)
+        {
+            if (internalObject == null) return;
+            Color col = new Color(r, g, b, a);
+            foreach (var sr in internalObject.GetComponentsInChildren<SpriteRenderer>())
+            {
+                sr.color = col;
+            }
+        }
+
+        public Table GetColor(Script engine)
+        {
+            Table t = new Table(engine);
+            var sr = internalObject?.GetComponentInChildren<SpriteRenderer>();
+            Color c = sr != null ? sr.color : Color.white;
+            t["r"] = c.r; t["g"] = c.g; t["b"] = c.b; t["a"] = c.a;
+            return t;
+        }
+
+        public void SetVisible(bool enabled)
+        {
+            if (internalObject == null) return;
+            foreach (var sr in internalObject.GetComponentsInChildren<SpriteRenderer>())
+            {
+                sr.enabled = enabled;
+            }
+        }
+
+        public bool IsVisible()
+        {
+            var sr = internalObject?.GetComponentInChildren<SpriteRenderer>();
+            return sr != null && sr.enabled;
+        }
+
+        public void SetLayer(int layer)
+        {
+            if (internalObject == null) return;
+            foreach (var t in internalObject.GetComponentsInChildren<Transform>())
+            {
+                t.gameObject.layer = layer;
+            }
+        }
+
+        public int GetLayer() => internalObject != null ? internalObject.layer : 0;
+
+        public void SetTag(string tag) { if (!string.IsNullOrEmpty(tag)) customTags.Add(tag); }
+        public bool HasTag(string tag) => customTags.Contains(tag);
+        public void RemoveTag(string tag) => customTags.Remove(tag);
 
         public void Dismember()
         {
             if (internalObject == null) return;
-
             Vector2 centerPosition = internalObject.transform.position;
             Joint2D[] joints = internalObject.GetComponentsInChildren<Joint2D>();
             for (int i = 0; i < joints.Length; i++)
             {
-                if (joints[i] != null)
-                {
-                    joints[i].enabled = false;
-                }
+                if (joints[i] != null) joints[i].enabled = false;
             }
 
             LimbBehaviour[] limbs = internalObject.GetComponentsInChildren<LimbBehaviour>();
@@ -109,51 +578,32 @@ namespace PPG_LuaLoader
             {
                 Vector2 limbPos = limbs[i].transform.position;
                 Vector2 radialDirection = (limbPos - centerPosition).normalized;
-
-                if (radialDirection == Vector2.zero)
-                {
-                    radialDirection = UnityEngine.Random.insideUnitCircle.normalized;
-                }
+                if (radialDirection == Vector2.zero) radialDirection = UnityEngine.Random.insideUnitCircle.normalized;
 
                 Rigidbody2D rb = limbs[i].GetComponent<Rigidbody2D>();
-                if (rb != null)
-                {
-                    rb.AddForce(radialDirection * UnityEngine.Random.Range(10f, 18f), ForceMode2D.Impulse);
-                }
+                if (rb != null) rb.AddForce(radialDirection * UnityEngine.Random.Range(10f, 18f), ForceMode2D.Impulse);
 
-                if (limbs[i].CirculationBehaviour != null)
-                {
-                    limbs[i].CirculationBehaviour.BleedingRate = 15f;
-                }
+                if (limbs[i].CirculationBehaviour != null) limbs[i].CirculationBehaviour.BleedingRate = 15f;
             }
         }
 
         public void Crush()
         {
             if (internalObject == null) return;
-
             LimbBehaviour[] limbs = internalObject.GetComponentsInChildren<LimbBehaviour>();
-            for (int i = 0; i < limbs.Length; i++)
-            {
-                limbs[i].Crush();
-            }
+            for (int i = 0; i < limbs.Length; i++) limbs[i].Crush();
         }
 
         public void Disintegrate()
         {
             if (internalObject == null) return;
-
             PhysicalBehaviour[] parts = internalObject.GetComponentsInChildren<PhysicalBehaviour>();
-            for (int i = 0; i < parts.Length; i++)
-            {
-                parts[i].Disintegrate();
-            }
+            for (int i = 0; i < parts.Length; i++) parts[i].Disintegrate();
         }
 
         public void Heal()
         {
             if (internalObject == null) return;
-
             PhysicalBehaviour[] physicalParts = internalObject.GetComponentsInChildren<PhysicalBehaviour>();
             for (int i = 0; i < physicalParts.Length; i++)
             {
@@ -166,7 +616,6 @@ namespace PPG_LuaLoader
             {
                 limbs[i].HealBone();
                 limbs[i].Health = 100f;
-
                 if (limbs[i].CirculationBehaviour != null)
                 {
                     limbs[i].CirculationBehaviour.HealBleeding();
@@ -177,10 +626,7 @@ namespace PPG_LuaLoader
             Inject("LIFE", 20f);
 
             PersonBehaviour person = internalObject.GetComponent<PersonBehaviour>();
-            if (person != null)
-            {
-                person.Consciousness = 1f;
-            }
+            if (person != null) person.Consciousness = 1f;
         }
 
         public void Inject(string liquidName, float amount)
@@ -191,25 +637,90 @@ namespace PPG_LuaLoader
                                ?? Liquid.GetLiquid(liquidName.ToUpper())
                                ?? Liquid.GetLiquid(liquidName.ToLower());
 
-            if (targetLiquid == null)
-            {
-                Debug.LogWarning($"[Lua Loader] Liquid '{liquidName}' not found in registry.");
-                return;
-            }
+            if (targetLiquid == null) return;
 
             CirculationBehaviour circulation = internalObject.GetComponentInChildren<CirculationBehaviour>();
-            if (circulation != null)
-            {
-                circulation.AddLiquid(targetLiquid, amount);
-            }
+            if (circulation != null) circulation.AddLiquid(targetLiquid, amount);
         }
 
         public void Delete()
         {
             if (internalObject != null)
             {
+                LoaderPlugin.DispatchGlobalEvent("OnDelete", this);
                 UnityEngine.Object.Destroy(internalObject);
             }
+        }
+
+        // --- Collision API ---
+        public List<string> GetColliders()
+        {
+            var list = new List<string>();
+            if (internalObject == null) return list;
+            foreach (var c in internalObject.GetComponentsInChildren<Collider2D>())
+            {
+                list.Add(c.GetType().Name);
+            }
+            return list;
+        }
+
+        public void SetCollisionLayer(int layer) => SetLayer(layer);
+        public int GetCollisionLayer() => GetLayer();
+
+        public void SetCollisionMask(int mask)
+        {
+            if (internalObject == null) return;
+            // Unity 2021 compatibility: Set layer collision interaction
+            int myLayer = internalObject.layer;
+            for (int i = 0; i < 32; i++)
+            {
+                bool collide = (mask & (1 << i)) != 0;
+                Physics2D.IgnoreLayerCollision(myLayer, i, !collide);
+            }
+        }
+
+        public int GetCollisionMask() => ~0;
+
+        public void IgnoreCollision(LuaEntity other, bool ignore)
+        {
+            if (internalObject == null || other?.internalObject == null) return;
+            var myCols = internalObject.GetComponentsInChildren<Collider2D>();
+            var otherCols = other.internalObject.GetComponentsInChildren<Collider2D>();
+            foreach (var c1 in myCols)
+            {
+                foreach (var c2 in otherCols)
+                {
+                    Physics2D.IgnoreCollision(c1, c2, ignore);
+                }
+            }
+        }
+
+        public List<LuaEntity> OverlapCircle(float radius)
+        {
+            var result = new List<LuaEntity>();
+            if (internalObject == null) return result;
+            var hits = Physics2D.OverlapCircleAll(internalObject.transform.position, radius);
+            HashSet<GameObject> roots = new HashSet<GameObject>();
+            foreach (var h in hits)
+            {
+                var root = h.transform.root.gameObject;
+                if (root != internalObject && roots.Add(root)) result.Add(new LuaEntity(root));
+            }
+            return result;
+        }
+
+        public List<LuaEntity> OverlapBox(float width, float height)
+        {
+            var result = new List<LuaEntity>();
+            if (internalObject == null) return result;
+            var hits = Physics2D.OverlapBoxAll(internalObject.transform.position, new Vector2(width, height), internalObject.transform.eulerAngles.z);
+            HashSet<GameObject> roots = new HashSet<GameObject>();
+            foreach (var h in hits)
+            {
+                var root = h.transform.root.gameObject;
+                if (root != internalObject && roots.Add(root)) result.Add(new LuaEntity(root));
+            }
+            return result;
         }
     }
 
@@ -269,12 +780,16 @@ namespace PPG_LuaLoader
         }
     }
 
+    // ========================================================================
+    // Main Loader Plugin
+    // ========================================================================
     [BepInPlugin(PluginGuid, PluginName, PluginVersion)]
     public class LoaderPlugin : BaseUnityPlugin
     {
         public const string PluginGuid = "com.user.ppg.lualoader";
         public const string PluginName = "Temporary PPG Lua Loader";
         public const string PluginVersion = "3.0.0";
+
 
         private readonly List<LuaModContainer> activeMods = new List<LuaModContainer>();
         private readonly Dictionary<string, CustomLuaItemTemplate> customItemCatalog = new Dictionary<string, CustomLuaItemTemplate>(StringComparer.OrdinalIgnoreCase);
@@ -288,7 +803,7 @@ namespace PPG_LuaLoader
         private bool isToyboxVisible = false;
         private Rect toyboxWindowRect = new Rect(40, 50, 420, 720);
         private Vector2 scrollPosition = Vector2.zero;
-        private int selectedTab = 0; // 0 = Custom Mods, 1 = Entities, 2 = Maps, 3 = Environment
+        private int selectedTab = 0;
         private string hoveredItemTitle = "Lua Toybox";
         private string hoveredItemDesc = "Hover over an item to view description.";
 
@@ -313,12 +828,46 @@ namespace PPG_LuaLoader
         private static IDictionary cachedInputDict = null;
         private static List<object> suppressedActionKeys = new List<object>();
         private static bool isGameEKeySuppressed = false;
+        public struct LuaEventSubscription
+        {
+            public Script Engine;
+            public DynValue Callback;
+        }
+
+        public static readonly Dictionary<string, List<LuaEventSubscription>> RegisteredGlobalEvents =
+            new Dictionary<string, List<LuaEventSubscription>>(StringComparer.OrdinalIgnoreCase);
+
+        public static void DispatchGlobalEvent(string eventName, params object[] args)
+        {
+            if (!RegisteredGlobalEvents.TryGetValue(eventName, out var subscriptions)) return;
+            for (int i = subscriptions.Count - 1; i >= 0; i--)
+            {
+                var sub = subscriptions[i];
+                if (sub.Engine != null && sub.Callback != null)
+                {
+                    try
+                    {
+                        sub.Engine.Call(sub.Callback, args);
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.LogError($"[Lua Event Exception - {eventName}]: {ex.Message}");
+                    }
+                }
+            }
+        }
 
         private void Awake()
         {
             Logger.LogInfo("=== [PPG Lua Loader] Final Release: Custom Map & Toybox V3 Engine ===");
 
             UserData.RegisterType<LuaEntity>();
+            UserData.RegisterType<LuaVector2>();
+
+            if (gameObject.GetComponent<LuaDebugRenderer>() == null)
+            {
+                gameObject.AddComponent<LuaDebugRenderer>();
+            }
 
             officialModsDirectory = Path.Combine(Paths.GameRootPath, "Mods");
             EnsureDirectoryExists(officialModsDirectory);
@@ -344,6 +893,24 @@ namespace PPG_LuaLoader
                 isToyboxVisible = false;
                 ClearSelection();
                 return;
+            }
+
+            // Global Key Events Dispatch
+            if (Input.anyKeyDown)
+            {
+                foreach (KeyCode kc in Enum.GetValues(typeof(KeyCode)))
+                {
+                    if (Input.GetKeyDown(kc)) DispatchGlobalEvent("OnKeyDown", kc.ToString());
+                }
+            }
+            foreach (KeyCode kc in Enum.GetValues(typeof(KeyCode)))
+            {
+                if (Input.GetKeyUp(kc)) DispatchGlobalEvent("OnKeyUp", kc.ToString());
+            }
+            for (int mouseBtn = 0; mouseBtn < 3; mouseBtn++)
+            {
+                if (Input.GetMouseButtonDown(mouseBtn)) DispatchGlobalEvent("OnMouseDown", mouseBtn);
+                if (Input.GetMouseButtonUp(mouseBtn)) DispatchGlobalEvent("OnMouseUp", mouseBtn);
             }
 
             if (isTimeScaleLocked)
@@ -552,7 +1119,6 @@ namespace PPG_LuaLoader
 
             GUILayout.Space(6);
 
-            // 4 Navigation Tabs (Including New MAPS Tab!)
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("Mods", selectedTab == 0 ? cardButtonStyle : GUI.skin.button, GUILayout.Height(26))) selectedTab = 0;
             if (GUILayout.Button("Entities", selectedTab == 1 ? cardButtonStyle : GUI.skin.button, GUILayout.Height(26))) selectedTab = 1;
@@ -726,7 +1292,6 @@ namespace PPG_LuaLoader
             }
         }
 
-        // Phase 6: Map Builder Tab
         private void DrawMapsPanel()
         {
             GUILayout.Label("Custom Map Presets (Phase 6):");
@@ -804,7 +1369,6 @@ namespace PPG_LuaLoader
             GUI.Label(new Rect(barRect.x + 10, barRect.y + 28, barRect.width - 20, 42), hoveredItemDesc);
         }
 
-        // Builds solid static walls and applies environmental gravity
         private void BuildCustomMap(CustomMapPreset map)
         {
             Physics2D.gravity = map.Gravity;
@@ -841,7 +1405,7 @@ namespace PPG_LuaLoader
             wallObj.transform.localScale = new Vector3(width, height, 1f);
 
             Rigidbody2D rb = wallObj.AddComponent<Rigidbody2D>();
-            rb.bodyType = RigidbodyType2D.Static; // Completely immovable in physical space!
+            rb.bodyType = RigidbodyType2D.Static;
 
             BoxCollider2D col = wallObj.AddComponent<BoxCollider2D>();
             col.size = new Vector2(1f, 1f);
@@ -909,7 +1473,8 @@ namespace PPG_LuaLoader
             if (spawnable != null && spawnable.Prefab != null)
             {
                 Vector3 worldPos = GetMouseWorldCoordinates();
-                UnityEngine.Object.Instantiate(spawnable.Prefab, worldPos, Quaternion.identity);
+                GameObject spawned = UnityEngine.Object.Instantiate(spawnable.Prefab, worldPos, Quaternion.identity);
+                AttachCollisionBridge(spawned);
             }
         }
 
@@ -955,6 +1520,7 @@ namespace PPG_LuaLoader
             }
 
             LuaEntity entity = new LuaEntity(spawnedObject);
+            AttachCollisionBridge(spawnedObject);
 
             if (template.OnSpawnCallback != null && template.OnSpawnCallback.Type == DataType.Function)
             {
@@ -968,6 +1534,7 @@ namespace PPG_LuaLoader
                 }
             }
 
+            DispatchGlobalEvent("OnSpawn", entity);
             return entity;
         }
 
@@ -1086,24 +1653,45 @@ namespace PPG_LuaLoader
             }
         }
 
+        // ====================================================================
+        // Complete Lua API Registry
+        // ====================================================================
         private void BindSafeApis(string modName, string modDir, Script engine, string modThumbPath)
         {
-            engine.Globals["Log"] = (Action<string>)((msg) =>
-            {
-                Logger.LogInfo($"[{modName}] {msg}");
-            });
+            // --- 13. Logging API ---
+            engine.Globals["Log"] = (Action<string>)((msg) => Logger.LogInfo($"[{modName}] {msg}"));
+            engine.Globals["LogWarning"] = (Action<string>)((msg) => Logger.LogWarning($"[{modName}] {msg}"));
+            engine.Globals["LogError"] = (Action<string>)((msg) => Logger.LogError($"[{modName}] {msg}"));
 
-            Table inputTable = new Table(engine);
-
-            inputTable["IsKeyDown"] = (Func<string, bool>)((keyName) =>
+            // --- 9. Event Hooks ---
+            string[] eventHooks = { "OnSpawn", "OnDelete", "OnCollision", "OnCollisionEnter", "OnCollisionExit", "OnKeyDown", "OnKeyUp", "OnMouseDown", "OnMouseUp" };
+            foreach (var evt in eventHooks)
             {
-                if (Enum.TryParse(keyName, true, out KeyCode parsedKey))
+                engine.Globals[evt] = (Action<DynValue>)((callback) =>
                 {
-                    return Input.GetKeyDown(parsedKey);
-                }
-                return false;
-            });
+                    if (callback.Type == DataType.Function)
+                    {
+                        if (!RegisteredGlobalEvents.ContainsKey(evt))
+                            RegisteredGlobalEvents[evt] = new List<LuaEventSubscription>();
 
+                        RegisteredGlobalEvents[evt].Add(new LuaEventSubscription
+                        {
+                            Engine = engine,
+                            Callback = callback
+                        });
+                    }
+                });
+            }
+
+            // --- 7. Input API ---
+            Table inputTable = new Table(engine);
+            inputTable["IsKeyDown"] = (Func<string, bool>)((key) => Enum.TryParse(key, true, out KeyCode k) && Input.GetKeyDown(k));
+            inputTable["IsKeyHeld"] = (Func<string, bool>)((key) => Enum.TryParse(key, true, out KeyCode k) && Input.GetKey(k));
+            inputTable["IsKeyUp"] = (Func<string, bool>)((key) => Enum.TryParse(key, true, out KeyCode k) && Input.GetKeyUp(k));
+            inputTable["IsMouseButtonDown"] = (Func<int, bool>)((b) => Input.GetMouseButtonDown(b));
+            inputTable["IsMouseButtonHeld"] = (Func<int, bool>)((b) => Input.GetMouseButton(b));
+            inputTable["IsMouseButtonUp"] = (Func<int, bool>)((b) => Input.GetMouseButtonUp(b));
+            inputTable["GetMouseScrollDelta"] = (Func<float>)(() => Input.mouseScrollDelta.y);
             inputTable["GetMouseWorldPosition"] = (Func<Table>)(() =>
             {
                 Vector3 worldPos = GetMouseWorldCoordinates();
@@ -1112,38 +1700,166 @@ namespace PPG_LuaLoader
                 posTable["y"] = worldPos.y;
                 return posTable;
             });
-
             engine.Globals["Input"] = inputTable;
 
+            // --- 5. Spawn API ---
             Table spawnTable = new Table(engine);
-
             spawnTable["Create"] = (Func<string, float, float, LuaEntity>)((itemName, x, y) =>
             {
-                try
-                {
-                    var spawnable = ModAPI.FindSpawnable(itemName);
-                    if (spawnable == null || spawnable.Prefab == null)
-                    {
-                        Logger.LogWarning($"[Spawn.Create] Asset '{itemName}' not found.");
-                        return null;
-                    }
-
-                    Vector3 targetPosition = new Vector3(x, y, 0f);
-                    GameObject spawnedInstance = UnityEngine.Object.Instantiate(spawnable.Prefab, targetPosition, Quaternion.identity);
-
-                    return new LuaEntity(spawnedInstance);
-                }
-                catch (Exception ex)
-                {
-                    Logger.LogError($"[Spawn.Create Exception]: {ex.Message}");
-                    return null;
-                }
+                var spawnable = ModAPI.FindSpawnable(itemName);
+                if (spawnable == null || spawnable.Prefab == null) return null;
+                GameObject spawned = UnityEngine.Object.Instantiate(spawnable.Prefab, new Vector3(x, y, 0), Quaternion.identity);
+                var ent = new LuaEntity(spawned);
+                AttachCollisionBridge(spawned);
+                DispatchGlobalEvent("OnSpawn", ent);
+                return ent;
             });
 
+            spawnTable["CreateAtRotation"] = (Func<string, float, float, float, LuaEntity>)((itemName, x, y, rot) =>
+            {
+                var spawnable = ModAPI.FindSpawnable(itemName);
+                if (spawnable == null || spawnable.Prefab == null) return null;
+                GameObject spawned = UnityEngine.Object.Instantiate(spawnable.Prefab, new Vector3(x, y, 0), Quaternion.Euler(0, 0, rot));
+                var ent = new LuaEntity(spawned);
+                AttachCollisionBridge(spawned);
+                DispatchGlobalEvent("OnSpawn", ent);
+                return ent;
+            });
+
+            spawnTable["CreateBatch"] = (Func<string, Table, List<LuaEntity>>)((itemName, positions) =>
+            {
+                var list = new List<LuaEntity>();
+                var spawnable = ModAPI.FindSpawnable(itemName);
+                if (spawnable == null || spawnable.Prefab == null) return list;
+
+                foreach (var pair in positions.Pairs)
+                {
+                    Table pt = pair.Value.Table;
+                    if (pt != null)
+                    {
+                        float px = (float)pt.Get("x").Number;
+                        float py = (float)pt.Get("y").Number;
+                        GameObject spawned = UnityEngine.Object.Instantiate(spawnable.Prefab, new Vector3(px, py, 0), Quaternion.identity);
+                        var ent = new LuaEntity(spawned);
+                        AttachCollisionBridge(spawned);
+                        DispatchGlobalEvent("OnSpawn", ent);
+                        list.Add(ent);
+                    }
+                }
+                return list;
+            });
+
+            spawnTable["Clone"] = (Func<LuaEntity, float, float, LuaEntity>)((entity, x, y) =>
+            {
+                if (entity?.InternalObject == null) return null;
+                GameObject cloned = UnityEngine.Object.Instantiate(entity.InternalObject, new Vector3(x, y, 0), entity.InternalObject.transform.rotation);
+                var ent = new LuaEntity(cloned);
+                AttachCollisionBridge(cloned);
+                DispatchGlobalEvent("OnSpawn", ent);
+                return ent;
+            });
+
+            spawnTable["GetAvailableAssets"] = (Func<List<string>>)(() =>
+            {
+                List<string> assets = new List<string>();
+                foreach (var s in Resources.FindObjectsOfTypeAll<SpawnableAsset>())
+                {
+                    if (s != null && !string.IsNullOrEmpty(s.name) && !assets.Contains(s.name))
+                    {
+                        assets.Add(s.name);
+                    }
+                }
+                return assets;
+            });
+
+            spawnTable["Exists"] = (Func<string, bool>)((assetName) => ModAPI.FindSpawnable(assetName) != null);
             engine.Globals["Spawn"] = spawnTable;
 
-            Table physicsTable = new Table(engine);
+            // --- 6. World API ---
+            Table worldTable = new Table(engine);
+            worldTable["GetEntities"] = (Func<List<LuaEntity>>)(() =>
+            {
+                var list = new List<LuaEntity>();
+                foreach (var pb in UnityEngine.Object.FindObjectsOfType<PhysicalBehaviour>())
+                {
+                    if (pb.transform.root != null) list.Add(new LuaEntity(pb.transform.root.gameObject));
+                }
+                return list;
+            });
 
+            worldTable["GetEntitiesInRadius"] = (Func<float, float, float, List<LuaEntity>>)((x, y, radius) =>
+            {
+                var list = new List<LuaEntity>();
+                var colliders = Physics2D.OverlapCircleAll(new Vector2(x, y), radius);
+                HashSet<GameObject> roots = new HashSet<GameObject>();
+                foreach (var c in colliders)
+                {
+                    if (roots.Add(c.transform.root.gameObject)) list.Add(new LuaEntity(c.transform.root.gameObject));
+                }
+                return list;
+            });
+
+            worldTable["GetEntitiesInBox"] = (Func<float, float, float, float, List<LuaEntity>>)((x, y, width, height) =>
+            {
+                var list = new List<LuaEntity>();
+                var colliders = Physics2D.OverlapBoxAll(new Vector2(x, y), new Vector2(width, height), 0f);
+                HashSet<GameObject> roots = new HashSet<GameObject>();
+                foreach (var c in colliders)
+                {
+                    if (roots.Add(c.transform.root.gameObject)) list.Add(new LuaEntity(c.transform.root.gameObject));
+                }
+                return list;
+            });
+
+            worldTable["GetEntityById"] = (Func<int, LuaEntity>)((instanceId) =>
+            {
+                foreach (var go in UnityEngine.Object.FindObjectsOfType<GameObject>())
+                {
+                    if (go.GetInstanceID() == instanceId) return new LuaEntity(go);
+                }
+                return null;
+            });
+
+            worldTable["GetEntitiesByName"] = (Func<string, List<LuaEntity>>)((name) =>
+            {
+                var list = new List<LuaEntity>();
+                foreach (var go in UnityEngine.Object.FindObjectsOfType<GameObject>())
+                {
+                    if (go.name.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0)
+                        list.Add(new LuaEntity(go));
+                }
+                return list;
+            });
+
+            worldTable["GetEntitiesByTag"] = (Func<string, List<LuaEntity>>)((tag) =>
+            {
+                var list = new List<LuaEntity>();
+                foreach (var go in UnityEngine.Object.FindObjectsOfType<GameObject>())
+                {
+                    if (go.CompareTag(tag)) list.Add(new LuaEntity(go));
+                }
+                return list;
+            });
+
+            worldTable["GetEntityCount"] = (Func<int>)(() => UnityEngine.Object.FindObjectsOfType<PhysicalBehaviour>().Length);
+            worldTable["GetBounds"] = (Func<Table>)(() =>
+            {
+                Table b = new Table(engine);
+                b["minX"] = -100f; b["maxX"] = 100f; b["minY"] = -50f; b["maxY"] = 50f;
+                return b;
+            });
+            worldTable["GetMouseWorldPosition"] = inputTable["GetMouseWorldPosition"];
+            worldTable["GetCameraPosition"] = (Func<Table>)(() =>
+            {
+                Table t = new Table(engine);
+                Vector3 p = Camera.main != null ? Camera.main.transform.position : Vector3.zero;
+                t["x"] = p.x; t["y"] = p.y;
+                return t;
+            });
+            engine.Globals["World"] = worldTable;
+
+            // --- Existing Physics API ---
+            Table physicsTable = new Table(engine);
             physicsTable["Explode"] = (Action<float, float, float, float>)((originX, originY, radius, forceMagnitude) =>
             {
                 Vector2 center = new Vector2(originX, originY);
@@ -1156,10 +1872,8 @@ namespace PPG_LuaLoader
                     if (rb != null && !affectedBodies.Contains(rb))
                     {
                         affectedBodies.Add(rb);
-
                         Vector2 direction = rb.position - center;
                         float distance = direction.magnitude;
-
                         if (distance > 0.01f)
                         {
                             float falloff = 1f - Mathf.Clamp01(distance / radius);
@@ -1168,25 +1882,33 @@ namespace PPG_LuaLoader
                     }
                 }
             });
-
             engine.Globals["Physics"] = physicsTable;
 
-            // Phase 6: Map & Structure Builder APIs
-            Table mapTable = new Table(engine);
-
-            mapTable["SetGravity"] = (Action<float, float>)((gx, gy) =>
-            {
-                Physics2D.gravity = new Vector2(gx, gy);
-            });
-
-            mapTable["SetTimeScale"] = (Action<float>)((scale) =>
+            // --- 10. Time API ---
+            Table timeTable = new Table(engine);
+            timeTable["GetDeltaTime"] = (Func<float>)(() => Time.deltaTime);
+            timeTable["GetTime"] = (Func<float>)(() => Time.time);
+            timeTable["GetFixedDeltaTime"] = (Func<float>)(() => Time.fixedDeltaTime);
+            timeTable["GetTimeScale"] = (Func<float>)(() => Time.timeScale);
+            timeTable["SetTimeScale"] = (Action<float>)((scale) =>
             {
                 isTimeScaleLocked = true;
-                lockedTimeScaleValue = Mathf.Clamp(scale, 0.01f, 10.0f);
+                lockedTimeScaleValue = Mathf.Clamp(scale, 0.01f, 10f);
                 Time.timeScale = lockedTimeScaleValue;
             });
+            timeTable["GetFrameRate"] = (Func<float>)(() => 1f / Mathf.Max(0.0001f, Time.unscaledDeltaTime));
+            engine.Globals["Time"] = timeTable;
 
-            // Single wall spawner
+            // --- 11. Map API ---
+            Table mapTable = new Table(engine);
+            mapTable["SetGravity"] = (Action<float, float>)((gx, gy) => Physics2D.gravity = new Vector2(gx, gy));
+            mapTable["GetGravity"] = (Func<Table>)(() =>
+            {
+                Table g = new Table(engine);
+                g["x"] = Physics2D.gravity.x; g["y"] = Physics2D.gravity.y;
+                return g;
+            });
+            mapTable["SetTimeScale"] = timeTable["SetTimeScale"];
             mapTable["CreateWall"] = (Func<float, float, float, float, string, LuaEntity>)((x, y, w, h, mat) =>
             {
                 string material = string.IsNullOrEmpty(mat) ? "Metal" : mat;
@@ -1194,33 +1916,26 @@ namespace PPG_LuaLoader
                 activeSpawnedWalls.Add(wall);
                 return new LuaEntity(wall);
             });
-
-            // Register full custom map preset
+            mapTable["GetBounds"] = worldTable["GetBounds"];
+            mapTable["GetEntities"] = worldTable["GetEntities"];
             mapTable["Register"] = (Action<Table>)((mapConfig) =>
             {
                 try
                 {
-                    string mapName = mapConfig.Get("name").String;
-                    string description = mapConfig.Get("description").String ?? "";
-
-                    CustomMapPreset preset = new CustomMapPreset
-                    {
-                        Name = mapName,
-                        Description = description
-                    };
+                    string mName = mapConfig.Get("name").String;
+                    string desc = mapConfig.Get("description").String ?? "";
+                    CustomMapPreset preset = new CustomMapPreset { Name = mName, Description = desc };
 
                     Table grav = mapConfig.Get("gravity").Table;
                     if (grav != null)
                     {
-                        float gx = (float)grav.Get(1).Number;
-                        float gy = (float)grav.Get(2).Number;
-                        preset.Gravity = new Vector2(gx, gy);
+                        preset.Gravity = new Vector2((float)grav.Get(1).Number, (float)grav.Get(2).Number);
                     }
 
-                    Table structuresTable = mapConfig.Get("structures").Table;
-                    if (structuresTable != null)
+                    Table structs = mapConfig.Get("structures").Table;
+                    if (structs != null)
                     {
-                        foreach (var pair in structuresTable.Pairs)
+                        foreach (var pair in structs.Pairs)
                         {
                             Table s = pair.Value.Table;
                             if (s != null)
@@ -1236,56 +1951,171 @@ namespace PPG_LuaLoader
                             }
                         }
                     }
-
-                    customMapCatalog[mapName] = preset;
-                    Logger.LogInfo($"Registered Custom Map Preset: [{mapName}]");
+                    customMapCatalog[mName] = preset;
+                    Logger.LogInfo($"Registered Custom Map Preset: [{mName}]");
                 }
                 catch (Exception ex)
                 {
-                    Logger.LogError($"Failed registering custom map: {ex.Message}");
+                    Logger.LogError($"Failed registering map: {ex.Message}");
                 }
             });
-
             engine.Globals["Map"] = mapTable;
 
+            // --- 12. Item API ---
             Table itemTable = new Table(engine);
-
-            itemTable["Register"] = (Action<Table>)((configTable) =>
+            Action<Table> registerItem = (configTable) =>
             {
                 try
                 {
-                    string itemName = configTable.Get("name").String;
+                    string iName = configTable.Get("name").String;
                     string description = configTable.Get("description").String ?? "";
-                    string baseItemName = configTable.Get("baseItem").String ?? "Sword";
-                    string spriteRelativePath = configTable.Get("sprite").String;
+                    string baseItem = configTable.Get("baseItem").String ?? "Sword";
+                    string spriteRelPath = configTable.Get("sprite").String;
                     DynValue onSpawnCallback = configTable.Get("onSpawn");
 
-                    customItemCatalog[itemName] = new CustomLuaItemTemplate
+                    customItemCatalog[iName] = new CustomLuaItemTemplate
                     {
-                        Name = itemName,
+                        Name = iName,
                         Description = description,
-                        BaseItemName = baseItemName,
-                        SpritePath = spriteRelativePath,
+                        BaseItemName = baseItem,
+                        SpritePath = spriteRelPath,
                         ModDirectory = modDir,
                         ModThumbnailPath = modThumbPath,
                         ScriptEngine = engine,
                         OnSpawnCallback = onSpawnCallback
                     };
-
-                    Logger.LogInfo($"Mounted to Toybox with custom thumb: [{itemName}]");
+                    Logger.LogInfo($"Registered Custom Lua Item: [{iName}]");
                 }
                 catch (Exception ex)
                 {
-                    Logger.LogError($"Failed registering custom item: {ex.Message}");
+                    Logger.LogError($"Failed registering item: {ex.Message}");
+                }
+            };
+
+            itemTable["Register"] = registerItem;
+            itemTable["Unregister"] = (Action<string>)((name) => customItemCatalog.Remove(name));
+            itemTable["GetRegisteredItems"] = (Func<List<string>>)(() => new List<string>(customItemCatalog.Keys));
+            itemTable["GetItem"] = (Func<string, Table>)((name) =>
+            {
+                if (!customItemCatalog.TryGetValue(name, out var item)) return null;
+                Table t = new Table(engine);
+                t["name"] = item.Name;
+                t["description"] = item.Description;
+                t["baseItem"] = item.BaseItemName;
+                return t;
+            });
+            itemTable["Spawn"] = (Func<string, float, float, LuaEntity>)((iName, x, y) => InternalSpawnCustomItem(iName, x, y));
+            itemTable["OnSpawn"] = (Action<Table, DynValue>)((config, callback) =>
+            {
+                config["onSpawn"] = callback;
+                registerItem(config);
+            });
+            itemTable["OnUse"] = (Action<Table, DynValue>)((config, callback) =>
+            {
+                config["onSpawn"] = DynValue.NewCallback((ctx, args) =>
+                {
+                    if (args.Count > 0 && args[0].UserData?.Object is LuaEntity ent && ent.InternalObject != null)
+                    {
+                        var listener = ent.InternalObject.GetComponent<LuaItemUseListener>()
+                                    ?? ent.InternalObject.AddComponent<LuaItemUseListener>();
+
+                        listener.OnUseAction = () =>
+                        {
+                            try { engine.Call(callback, ent); }
+                            catch (Exception ex) { Debug.LogError($"[Item OnUse Error]: {ex.Message}"); }
+                        };
+                    }
+                    return DynValue.Nil;
+                });
+                registerItem(config);
+            });
+            engine.Globals["Item"] = itemTable;
+
+            // --- 13. Debug API ---
+            Table debugTable = new Table(engine);
+            debugTable["DrawLine"] = (Action<float, float, float, float, float>)((x1, y1, x2, y2, dur) => LuaDebugRenderer.AddLine(new Vector2(x1, y1), new Vector2(x2, y2), dur));
+            debugTable["DrawCircle"] = (Action<float, float, float, float>)((x, y, r, dur) => LuaDebugRenderer.AddCircle(new Vector2(x, y), r, dur));
+            debugTable["DrawBox"] = (Action<float, float, float, float, float>)((x, y, w, h, dur) => LuaDebugRenderer.AddBox(new Vector2(x, y), w, h, dur));
+            debugTable["GetEntityInfo"] = (Func<LuaEntity, string>)((ent) => ent?.InternalObject != null ? $"{ent.GetName()} (ID:{ent.GetInstanceId()}) Pos:{ent.InternalObject.transform.position}" : "null");
+            debugTable["IsEnabled"] = (Func<bool>)(() => true);
+            engine.Globals["Debug"] = debugTable;
+
+            // --- 14. Mod Management API ---
+            Table modApiTable = new Table(engine);
+            modApiTable["GetName"] = (Func<string>)(() => modName);
+            modApiTable["GetVersion"] = (Func<string>)(() => PluginVersion);
+            modApiTable["GetPath"] = (Func<string>)(() => modDir);
+            modApiTable["GetAllMods"] = (Func<List<string>>)(() =>
+            {
+                var list = new List<string>();
+                foreach (var m in activeMods) list.Add(m.ModName);
+                return list;
+            });
+            modApiTable["IsLoaded"] = (Func<string, bool>)((name) => activeMods.Exists(m => m.ModName.Equals(name, StringComparison.OrdinalIgnoreCase)));
+            modApiTable["Reload"] = (Action<string>)((name) =>
+            {
+                var target = activeMods.Find(m => m.ModName.Equals(name, StringComparison.OrdinalIgnoreCase));
+                if (target != null)
+                {
+                    activeMods.Remove(target);
+                    string mainLua = Path.Combine(target.ModDirectory, "main.lua");
+                    if (File.Exists(mainLua)) LoadSingleMod(target.ModName, target.ModDirectory, mainLua, "thumb.png");
                 }
             });
-
-            itemTable["Spawn"] = (Func<string, float, float, LuaEntity>)((itemName, x, y) =>
+            modApiTable["GetMetadata"] = (Func<Table>)(() =>
             {
-                return InternalSpawnCustomItem(itemName, x, y);
+                Table meta = new Table(engine);
+                meta["name"] = modName;
+                meta["dir"] = modDir;
+                return meta;
             });
+            engine.Globals["Mod"] = modApiTable;
 
-            engine.Globals["Item"] = itemTable;
+            // --- 15. Math & Vector2 API ---
+            Table mathTable = (Table)engine.Globals["math"];
+            mathTable["Clamp"] = (Func<float, float, float, float>)Mathf.Clamp;
+            mathTable["Lerp"] = (Func<float, float, float, float>)Mathf.Lerp;
+            mathTable["DegToRad"] = (Func<float, float>)((deg) => deg * Mathf.Deg2Rad);
+            mathTable["RadToDeg"] = (Func<float, float>)((rad) => rad * Mathf.Rad2Deg);
+            mathTable["Distance"] = (Func<float, float, float, float, float>)((x1, y1, x2, y2) => Vector2.Distance(new Vector2(x1, y1), new Vector2(x2, y2)));
+            mathTable["Angle"] = (Func<float, float, float, float, float>)((x1, y1, x2, y2) => Mathf.Atan2(y2 - y1, x2 - x1) * Mathf.Rad2Deg);
+            mathTable["Random"] = (Func<float, float, float>)UnityEngine.Random.Range;
+            mathTable["RandomInt"] = (Func<int, int, int>)UnityEngine.Random.Range;
+
+            Table vec2Table = new Table(engine);
+            vec2Table["New"] = (Func<float, float, LuaVector2>)((x, y) => new LuaVector2(x, y));
+            engine.Globals["Vector2"] = vec2Table;
+        }
+
+        // ====================================================================
+        // Helpers
+        // ====================================================================
+        public class LuaCollisionBridge : MonoBehaviour
+        {
+            public Action<Collision2D> onCollisionEnterAction;
+            public Action<Collision2D> onCollisionExitAction;
+            private void OnCollisionEnter2D(Collision2D c) => onCollisionEnterAction?.Invoke(c);
+            private void OnCollisionExit2D(Collision2D c) => onCollisionExitAction?.Invoke(c);
+        }
+
+        private static void AttachCollisionBridge(GameObject obj)
+        {
+            if (obj == null) return;
+            var bridge = obj.GetComponent<LuaCollisionBridge>() ?? obj.AddComponent<LuaCollisionBridge>();
+            bridge.onCollisionEnterAction = (collision) =>
+            {
+                var me = new LuaEntity(obj);
+                var other = new LuaEntity(collision.gameObject);
+                float impulse = collision.relativeVelocity.magnitude;
+                DispatchGlobalEvent("OnCollisionEnter", me, other, impulse);
+                DispatchGlobalEvent("OnCollision", me, other, impulse);
+            };
+            bridge.onCollisionExitAction = (collision) =>
+            {
+                var me = new LuaEntity(obj);
+                var other = new LuaEntity(collision.gameObject);
+                DispatchGlobalEvent("OnCollisionExit", me, other, 0f);
+            };
         }
 
         private Sprite LoadSafeSpriteFromModFolder(string modFolder, string relativePath)
