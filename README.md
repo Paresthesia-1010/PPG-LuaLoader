@@ -2,7 +2,7 @@
 
 > **WIP.** Non-official Lua mod loader for People Playground. This is a personal test project.
 
-[![Releases](https://img.shields.io/badge/Release-v3.0_Final-blue.svg)](https://github.com/Paresthesia/PPG-LuaLoader/releases/tag/main)
+[![Releases](https://img.shields.io/badge/Release-v3.0_Final-blue.svg)](https://github.com/Paresthesia-1010/PPG-LuaLoader/releases/tag/main)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 ---
@@ -11,12 +11,12 @@
 
 Looking to test the loader right away? Grab the latest compiled binaries from the official release page.
 
-👉 **[Download PPG-LuaLoader v3.0 Final Release](https://github.com/Paresthesia/PPG-LuaLoader/releases/tag/main)**
+👉 **[Download PPG-LuaLoader v3.0 Final Release](https://github.com/Paresthesia-1010/PPG-LuaLoader/releases/tag/main)**
 
 ### Installation Steps
 1. Make sure you have **People Playground** installed via Steam.
 2. Download and extract **BepInEx 5 (Mono x64)** into your game root directory (`People Playground/`).
-3. Download `PPG_LuaLoader.dll` and `MoonSharp.Interpreter.dll` from the [Releases Page](https://github.com/Paresthesia/PPG-LuaLoader/releases/tag/main).
+3. Download `PPG_LuaLoader.dll` and `MoonSharp.Interpreter.dll` from the [Releases Page](https://github.com/Paresthesia-1010/PPG-LuaLoader/releases/tag/main).
 4. Drop both DLL files into your **`BepInEx/plugins/`** folder.
 5. Launch the game!
 
