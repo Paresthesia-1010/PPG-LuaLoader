@@ -1294,7 +1294,7 @@ namespace PPG_LuaLoader
 
         private void DrawMapsPanel()
         {
-            GUILayout.Label("Custom Map Presets (Phase 6):");
+            GUILayout.Label("Custom Map Presets");
             if (customMapCatalog.Count == 0)
             {
                 GUILayout.Label("(No custom maps registered via Lua yet)");
